@@ -50,6 +50,9 @@ interface KanbanData {
   errorList: { errorCode: string; errorCount: number }[];
   // Từng lỗi kèm công đoạn + khung giờ (null = không tải được, Pareto dùng errorList cả ngày)
   defectRecords: DefectRecord[] | null;
+  // Từng lần qua / lỗi của SN theo công đoạn + khung giờ, để dòng Tổng đếm số SN (không đếm trùng SN test lại);
+  // null = không tải được, dòng Tổng cộng số lần như các khung giờ
+  snMarks: SnMark[] | null;
   // Từng WO đang gộp (1 WO, hoặc các WO của model khi chọn "Tất cả WO của model")
   products: { wo: string; code: string; name: string; plan: number; done: number; inputGroup: string; outputGroup: string }[];
   // Theo khung giờ, tính riêng từng WO rồi cộng (các WO có thể bắt đầu ở công đoạn khác nhau, vd. AOI-TOP / AOI-BOT):
@@ -59,6 +62,8 @@ interface KanbanData {
 // Một lỗi đã ghi nhận: mã lỗi, công đoạn phát hiện (trạm sửa R_xxx → xxx), khung giờ, số SN, thời gian,
 // công đoạn lỗi theo SerialnumberErrorHistory ("" = chưa có), công đoạn SN được trả về sau khi sửa ("" = đang sửa),
 // trạng thái: đang sửa / đã sửa (đã trả về công đoạn) / OK (đã sửa và đã qua lại công đoạn được trả về)
+// Một lần SN qua (fail = false) hoặc lỗi (fail = true) tại công đoạn stage (stageId), trong khung giờ slot
+interface SnMark { stage: string; slot: number; sn: string; fail: boolean; }
 interface DefectRecord {
   code: string; stage: string; slot: number; sn: string; time: string; errorStage: string; returnStage: string; errorName: string;
   status: RepairStatus;
@@ -73,6 +78,7 @@ interface WoInfo { wo: string; model: string; product: string; line: string; cre
 const matchWo = (x: WoInfo, m: string, l: string, p = "") =>
   (!m || x.model === m) && (!l || x.line === l) && (!p || x.product === p);
 const ALL_WO = "__all__";
+const stageId = (s: string) => s.trim().toUpperCase();
 const SCAN_EVERY = 12;   // "Tất cả WO của model": cứ 12 lần tự tải (~1 phút) dò lại các WO chưa có số liệu
 const POOL = 4;          // số yêu cầu gửi cùng lúc khi tải nhiều WO (từ ~6 yêu cầu cùng lúc get-daily-report đã hay trả 502)
 
@@ -274,6 +280,24 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
   return out;
 }
 
+// Lịch sử test của WO trong các ngày đang xem → từng lần SN qua / lỗi theo công đoạn. Cùng cách đếm với get-daily-report:
+// Pass của công đoạn X = bản ghi preStageName = X và stageName khác R_X; Fail của X = bản ghi stageName = R_X.
+// get-daily-report đếm số bản ghi, nên SN lỗi → sửa → qua lại bị đếm 2 lần; dòng Tổng dùng số SN khác nhau.
+async function fetchSnMarks(wo: string | string[], days: string[], auth: any): Promise<SnMark[]> {
+  // Server hay trả 502 khi đang bận: gửi lại để dòng Tổng không quay về đếm số lần
+  const rows = await withRetry(() => fetchHistory(wo, days[0], addDays(days[days.length - 1], 1), null, auth));
+  const out: SnMark[] = [];
+  rows.forEach(r => {
+    const st = String(r.stageName || "").trim(), pre = String(r.preStageName || "").trim();
+    const sn = String(r.serialNumber || "").trim();
+    if (!sn) return;
+    const slot = SLOT_HOUR.indexOf(Number(String(r.testTime || "").slice(11, 13)));
+    if (/^R_/i.test(st)) out.push({ stage: stageId(st.slice(2)), slot, sn, fail: true });
+    else if (pre && !/^R_/i.test(pre)) out.push({ stage: stageId(pre), slot, sn, fail: false });
+  });
+  return out;
+}
+
 const zeros = (n: number) => {
   const a: number[] = [];
   for (let i = 0; i < n; i++) a.push(0);
@@ -282,7 +306,8 @@ const zeros = (n: number) => {
 const asArray = (v: any): any[] => (Array.isArray(v) ? v : []);
 
 // Gộp kết quả get-common-info + get-daily-report (một hoặc nhiều ngày) thành dữ liệu cho Kanban
-function buildKanbanData(woCode: string, common: any, reports: any[], defectRecords: DefectRecord[] | null): KanbanData {
+function buildKanbanData(woCode: string, common: any, reports: any[], defectRecords: DefectRecord[] | null,
+  snMarks: SnMark[] | null = null): KanbanData {
   const stages: Stage[] = asArray(common.stageNameList).map((s: any) => ({ name: String(s.stage_name ?? ""), key: String(s.stage_key ?? "") }));
   const rows = SLOTS.map(() => stages.map(() => [0, 0]));
   const outside = stages.map(() => [0, 0]);
@@ -333,6 +358,7 @@ function buildKanbanData(woCode: string, common: any, reports: any[], defectReco
     stages, rows, outside, hasOutside, outputByHour, failByHour, hasFailTable,
     errorList: Array.from(errors, ([errorCode, errorCount]) => ({ errorCode, errorCount })),
     defectRecords,
+    snMarks,
     products: [product],
     inByHour: rows.map(r => (stages.length ? r[0][0] : 0)),
     outByHour: rows.map(r => (out >= 0 ? r[out][0] : 0))
@@ -348,10 +374,9 @@ function hasData(reports: any[]) {
 }
 
 // Gộp nhiều WO (tất cả WO của model) thành một: công đoạn gộp theo tên (thứ tự xuất hiện), các số cộng lại
-const stageId = (s: string) => s.trim().toUpperCase();
 // idle: sản phẩm của các WO trong bộ lọc không có số liệu trong các ngày đang xem — chỉ cộng vào Sản lượng / Sản phẩm
 function mergeKanban(woCode: string, parts: KanbanData[], defectRecords: DefectRecord[] | null,
-  idle: KanbanData["products"] = []): KanbanData {
+  idle: KanbanData["products"] = [], snMarks: SnMark[] | null = null): KanbanData {
   const stages: Stage[] = [];
   const idx = new Map<string, number>();
   parts.forEach(p => p.stages.forEach(s => {
@@ -385,7 +410,7 @@ function mergeKanban(woCode: string, parts: KanbanData[], defectRecords: DefectR
     stages, rows, outside, hasOutside: parts.some(p => p.hasOutside), outputByHour, failByHour,
     hasFailTable: parts.length > 0 && parts.every(p => p.hasFailTable),
     errorList: Array.from(errors, ([errorCode, errorCount]) => ({ errorCode, errorCount })),
-    defectRecords, products, inByHour, outByHour
+    defectRecords, snMarks, products, inByHour, outByHour
   };
 }
 
@@ -393,7 +418,17 @@ function mergeKanban(woCode: string, parts: KanbanData[], defectRecords: DefectR
 function computeView(d: KanbanData, shiftIndex: number, from: number, to: number, sel: number[]) {
   const hrs = shiftSlots(shiftIndex).filter(i => i >= from && i <= to);
   const rows = hrs.map(h => ({ slot: SLOTS[h], cells: sel.map(j => d.rows[h][j]) }));
-  const totals = sel.map((_, k) => [sum(rows.map(r => r.cells[k][0])), sum(rows.map(r => r.cells[k][1]))]);
+  // Dòng Tổng: số SN khác nhau đã qua / bị lỗi tại công đoạn trong các khung giờ đang xem (SN test lại sau sửa chỉ tính 1),
+  // khớp số SN và số lượng của WO. Không tải được lịch sử test thì cộng số lần như các khung giờ.
+  const totals = d.snMarks
+    ? sel.map(j => {
+      const id = stageId(d.stages[j].name), pass = new Set<string>(), fail = new Set<string>();
+      (d.snMarks as SnMark[]).forEach(m => {
+        if (m.stage === id && hrs.indexOf(m.slot) >= 0) (m.fail ? fail : pass).add(m.sn);
+      });
+      return [pass.size, fail.size];
+    })
+    : sel.map((_, k) => [sum(rows.map(r => r.cells[k][0])), sum(rows.map(r => r.cells[k][1]))]);
   // Đủ công đoạn thì dùng tổng lỗi theo giờ của backend; đang lọc công đoạn thì cộng Fail các công đoạn đang chọn
   const useBackendFail = sel.length === d.stages.length && d.hasFailTable;
   const failByHour = hrs.map((h, k) => (useBackendFail ? d.failByHour[h] : sum(rows[k].cells.map(c => c[1]))));
@@ -1016,7 +1051,7 @@ function StageTable({ stageNames, rows, outside, noStages, totals, onPick }: {
                   </tr>
                 ))}
                 {/* Dòng Tổng: tổng Pass / Fail từng công đoạn trong các khung giờ đang xem */}
-                <tr className="total">
+                <tr className="total" title={t("stage.totalTip")}>
                   <td className="time">{t("xl.total")}</td>
                   <Cells cells={totals} onPick={pick && (j => pick(j, -1))} />
                 </tr>
@@ -1243,12 +1278,13 @@ const KanbanScreen = () => {
               dl = days.filter(d => d >= recent || (!!sp && d >= addDays(sp[0], -1) && d <= addDays(sp[1], 1)));
             }
           }
-          const [c, reports, records] = await Promise.all([
+          const [c, reports, records, marks] = await Promise.all([
             commonOf(wo, 0), pool(dl, d => fetchReport(wo, d)),
             // Lỗi theo công đoạn / giờ: tải lỗi thì vẫn hiện Kanban, Pareto dùng errorList cả ngày
-            fetchDefectRecords(wo, days, auth).catch(() => null)
+            fetchDefectRecords(wo, days, auth).catch(() => null),
+            fetchSnMarks(wo, days, auth).catch(() => null)
           ]);
-          next = buildKanbanData(wo, c, reports, records);
+          next = buildKanbanData(wo, c, reports, records, marks);
         } else {
           // Nhiều WO: chỉ gộp các WO có số liệu trong các ngày đang xem, tối đa POOL yêu cầu cùng lúc.
           // Lần tải đầu dò mọi WO; sau đó ở lần dò (~1 phút) dò lại các WO chưa có số liệu với các ngày từ hôm qua.
@@ -1295,10 +1331,11 @@ const KanbanScreen = () => {
             return sp ? days.filter(d => d >= recent || (d >= addDays(sp[0], -1) && d <= addDays(sp[1], 1))) : days;
           };
           const pairs = ([] as [string, string][]).concat(...need.map(wo => daysFor(wo).map(d => [wo, d] as [string, string])));
-          const [fresh, records, commonList] = await Promise.all([
+          const [fresh, records, commonList, marks] = await Promise.all([
             pool(pairs, ([wo, d]) => fetchReport(wo, d).catch(() => null)),
             live.length ? fetchDefectRecords(live, days, auth).catch(() => null) : Promise.resolve([] as DefectRecord[]),
-            commonsP
+            commonsP,
+            live.length ? fetchSnMarks(live, days, auth).catch(() => null) : Promise.resolve([] as SnMark[])
           ]);
           need.forEach(wo => got.set(wo, []));
           pairs.forEach(([wo], i) => { if (fresh[i]) (got.get(wo) as any[]).push(fresh[i]); });
@@ -1317,10 +1354,12 @@ const KanbanScreen = () => {
           // Nhãn ô Mã WO-Line: tất cả WO → "BAM2510 · SMT · 2/5 WO" (số WO có chạy / số WO trong bộ lọc); tự chọn nhiều WO → số WO đã chọn
           next = mergeKanban(query.woLine === ALL_WO
             ? `${query.model || query.product}${query.line ? ` · ${query.line}` : ""} · ${parts.length}/${query.sumWos.length} WO`
-            : `${query.wos.length} WO`, parts, records, idle);
+            : `${query.wos.length} WO`, parts, records, idle, marks);
         }
 
-        if (alive) setData(next);
+        // Lần tự tải không lấy được lịch sử test (server bận): giữ số SN của lần trước để dòng Tổng không nhảy sang số lần
+        if (alive) setData(prev => (silent && next && !next.snMarks && prev && prev.snMarks && prev.woCode === next.woCode
+          ? { ...next, snMarks: prev.snMarks } : next));
       } catch (err) {
         if (alive && !silent) {
           toast.error(errMessage(err, tRef.current("msg.unknown")));
