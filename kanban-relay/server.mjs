@@ -19,8 +19,20 @@ import http from "node:http";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
+// Cấu hình: file relay.env cạnh server.mjs (KEY=VALUE, mỗi dòng một biến); biến môi trường đặt sẵn được ưu tiên.
+// Chuyển relay sang máy khác / trỏ sang server planning khác: chỉ cần sửa relay.env rồi chạy lại.
+const CONFIG_FILE = process.env.RELAY_CONFIG || fileURLToPath(new URL("./relay.env", import.meta.url));
+if (fs.existsSync(CONFIG_FILE)) {
+  fs.readFileSync(CONFIG_FILE, "utf8").split(/\r?\n/).forEach(line => {
+    const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trim().startsWith("#") && process.env[m[1]] === undefined) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  });
+}
+
 const PLANNING_URL = (process.env.PLANNING_URL || "").replace(/\/+$/, "");
-if (!PLANNING_URL) { console.error("Thiếu PLANNING_URL"); process.exit(1); }
+if (!PLANNING_URL) { console.error("Thiếu PLANNING_URL (đặt trong relay.env hoặc biến môi trường)"); process.exit(1); }
 const PORT = Number(process.env.PORT) || 8765;
 const TOKEN_FILE = process.env.TOKEN_FILE || fileURLToPath(new URL("./.env.token", import.meta.url));
 const APP_ORIGIN = process.env.APP_ORIGIN || PLANNING_URL;

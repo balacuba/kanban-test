@@ -1,0 +1,15 @@
+# Chuyển hướng (reverse proxy) đường dẫn /kanban-relay/ của server ứng dụng tới Kanban relay.
+# Dùng khi ứng dụng Jmix chạy https (trình duyệt chặn trang https gọi http) hoặc muốn Kanban gọi cùng địa chỉ ứng dụng.
+# Đặt khối location này trong server { ... } của ứng dụng, rồi trong Kanban đặt
+#   KANBAN_RELAY_URL = "https://<địa chỉ ứng dụng>/kanban-relay"
+location /kanban-relay/ {
+    proxy_pass http://127.0.0.1:8765/;     # đổi thành địa chỉ máy chạy relay
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    # SSE: không gom / không đệm, giữ kết nối lâu
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    chunked_transfer_encoding on;
+}

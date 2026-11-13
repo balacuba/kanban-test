@@ -20,3 +20,4 @@ android-tv/update/
 # Bản web build ra từ tv/ (GitHub Actions tự build lại)
 android-tv/app/src/main/assets/web/
 kanban-relay/.env.token
+kanban-relay/relay.env

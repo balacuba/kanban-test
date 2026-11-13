@@ -20,31 +20,40 @@ server planning  ←── hỏi 1 lần / 3 giây cho mỗi nhóm WO ─── 
 - Relay tắt hoặc mất kết nối: Kanban tự quay về cách cũ (tự hỏi mỗi 5 giây). Khi relay chạy lại, Kanban tự nối lại.
 - Kanban đang ẩn (tab màn hình khác của ứng dụng) không tải lại; khi hiện lại sẽ tải ngay.
 
-## Cài đặt
+## Các file trong gói
 
-1. Chọn một máy chạy liên tục trong mạng xưởng, cài **Node.js 18** trở lên. Không cần cài thêm thư viện.
-2. Chép thư mục `kanban-relay` sang máy đó.
-3. Tạo file `.env.token` cạnh `server.mjs` (chép từ `.env.token.example`) và điền một tài khoản chỉ có quyền đọc
-   số liệu sản xuất. Người quản trị tự điền; không gửi file này cho ai và không đưa lên GitHub.
-4. Chạy:
+| File | Dùng để |
+|---|---|
+| `server.mjs` | Chương trình relay (Node.js 18+, không cần cài thư viện) |
+| `relay.env.example` | Mẫu cấu hình: địa chỉ server planning, cổng, CORS… → chép thành `relay.env` |
+| `.env.token.example` | Mẫu file tài khoản → chép thành `.env.token`, người quản trị tự điền |
+| `start-relay.bat` / `start-relay.sh` | Chạy relay trên Windows / Linux (tự chạy lại nếu dừng) |
+| `install-autostart.bat` | Windows: cho relay tự chạy khi máy khởi động (chạy bằng quyền Administrator) |
+| `Dockerfile`, `docker-compose.yml` | Chạy bằng Docker |
+| `nginx-kanban-relay.conf.example` | Chuyển hướng `/kanban-relay/` của server ứng dụng tới relay (bắt buộc khi ứng dụng chạy https) |
 
-   ```bash
-   PLANNING_URL=http://14.241.68.10:3000 node server.mjs
-   ```
+## Cài đặt / chuyển sang server khác
 
-   Trên Windows (PowerShell):
-
-   ```powershell
-   $env:PLANNING_URL="http://14.241.68.10:3000"; node server.mjs
-   ```
-
+1. Chép cả thư mục `kanban-relay` sang máy chạy relay (máy chạy liên tục, vào được server planning, Kanban/TV vào
+   được máy này).
+2. Chép `relay.env.example` thành `relay.env`, sửa `PLANNING_URL` (địa chỉ server planning) và nếu cần
+   `APP_ORIGIN`, `ALLOW_ORIGIN`, `PORT`.
+3. Chép `.env.token.example` thành `.env.token`, điền một tài khoản chỉ có quyền đọc số liệu sản xuất. Không gửi
+   file này cho ai và không đưa lên GitHub.
+4. Chạy theo một trong các cách:
+   - **Windows:** bấm đúp `start-relay.bat`. Muốn tự chạy khi bật máy: chuột phải `install-autostart.bat` →
+     Run as administrator.
+   - **Linux:** `sh start-relay.sh` (hoặc dùng `pm2` / `systemd` để chạy nền).
+   - **Docker:** `docker compose up -d`.
 5. Kiểm tra: mở `http://<máy relay>:8765/health`. Thấy `"ok": true` là relay đã lấy được token.
+6. Mở cổng 8765 trên tường lửa của máy relay cho các máy Kanban/TV.
 
-Biến môi trường khác: `PORT` (mặc định 8765), `POLL_MS` (chu kỳ kiểm tra, mặc định 3000), `ALLOW_ORIGIN` (trang
-được phép nghe SSE, mặc định mọi trang; nên đặt địa chỉ ứng dụng Jmix), `APP_ORIGIN` (Origin gửi kèm khi gọi
-server planning, mặc định `PLANNING_URL`), `TOKEN_FILE` (đường dẫn file tài khoản).
+Trỏ relay sang server planning khác: chỉ sửa `PLANNING_URL` trong `relay.env` rồi chạy lại relay. Kanban không phải
+sửa gì (vẫn nối vào địa chỉ relay).
 
-Để relay tự chạy khi máy khởi động, có thể dùng Task Scheduler (Windows), `pm2` hoặc `systemd` (Linux).
+Chuyển relay sang máy khác: làm lại các bước trên ở máy mới, rồi đổi `KANBAN_RELAY_URL` của Kanban sang địa chỉ máy
+mới. Nếu dùng nginx chuyển hướng (`/kanban-relay/`), chỉ cần sửa dòng `proxy_pass` trong nginx, Kanban không phải
+build lại.
 
 ## Bật relay cho Kanban
 

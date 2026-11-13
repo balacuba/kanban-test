@@ -1,0 +1,11 @@
+# Chạy: docker compose up -d   (cần relay.env và .env.token cùng thư mục)
+services:
+  kanban-relay:
+    build: .
+    container_name: kanban-relay
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./relay.env:/app/relay.env:ro
+      - ./.env.token:/app/.env.token:ro
