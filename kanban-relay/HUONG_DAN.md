@@ -70,3 +70,27 @@ Kiểm tra Kanban đã nối relay: trang `/health` của relay hiện số Kanb
 
 Lưu ý: nếu ứng dụng Jmix chạy bằng `https`, relay cũng phải chạy sau `https` (ví dụ qua nginx), vì trình duyệt chặn
 trang `https` gọi tới địa chỉ `http`.
+
+## Cài bằng KanbanRelay.exe (Windows, không cần cài Node.js)
+
+`KanbanRelay.exe` gồm sẵn Node.js và relay trong một file.
+
+1. Chép `KanbanRelay.exe` sang máy sẽ chạy relay (máy chạy liên tục trong mạng xưởng).
+2. Bấm đúp `KanbanRelay.exe`. Lần đầu chương trình xin quyền Administrator rồi hỏi:
+   - địa chỉ server planning, cổng relay (mặc định 8765);
+   - tài khoản để relay đọc số liệu (Keycloak token URL, client ID, client secret, tên đăng nhập, mật khẩu).
+     Mật khẩu và client secret không hiện khi gõ; file tài khoản chỉ Administrators và SYSTEM đọc được.
+3. Chương trình tự cài vào `C:\KanbanRelay`, cho relay tự chạy khi bật máy (Task Scheduler "Kanban relay"), mở cổng
+   tường lửa, chạy relay và in ra địa chỉ để Kanban / TV trỏ về, ví dụ `http://172.22.88.27:8765`.
+4. Gửi địa chỉ đó để cấu hình `KANBAN_RELAY_URL` cho Kanban / TV.
+
+Sau khi cài:
+- Bấm đúp `C:\KanbanRelay\KanbanRelay.exe`: xem trạng thái (đang chạy, token, số Kanban đang nghe, địa chỉ IP).
+- `KanbanRelay.exe --setup`: sửa cấu hình / tài khoản (vd. chuyển sang server planning khác).
+- `KanbanRelay.exe --run`: chạy relay trong cửa sổ để xem log trực tiếp (tắt bản chạy nền trước nếu cùng cổng).
+- `KanbanRelay.exe --uninstall`: gỡ tự chạy và luật tường lửa.
+- Log chạy nền: `C:\KanbanRelay\relay.log`.
+
+Windows có thể cảnh báo "Windows protected your PC" vì exe chưa ký số: bấm **More info → Run anyway**.
+
+Build lại exe (sau khi sửa `server.mjs`): `node kanban-relay/exe/build.cjs` (cần `npm i -D postject`).
