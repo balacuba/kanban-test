@@ -78,7 +78,7 @@ trang `https` gọi tới địa chỉ `http`.
 1. Chép `KanbanRelay.exe` sang máy sẽ chạy relay (máy chạy liên tục trong mạng xưởng).
    **Cài không cần nhập gì:** đặt file tài khoản `.env.token` (cùng định dạng `harness/.env.token`) cạnh
    `KanbanRelay.exe` (và nếu cần, `relay.env` để đổi server / cổng). Bấm đúp exe là cài luôn với tài khoản đó;
-   cài xong nên xoá `.env.token` cạnh exe (bản đã cài nằm ở `C:KanbanRelay`, chỉ Administrators đọc được).
+   cài xong nên xoá `.env.token` cạnh exe (bản đã cài nằm ở `C:\KanbanRelay`, chỉ Administrators đọc được).
 2. Bấm đúp `KanbanRelay.exe`. Lần đầu chương trình xin quyền Administrator rồi hỏi:
    - địa chỉ server planning, cổng relay (mặc định 8765);
    - tài khoản để relay đọc số liệu (Keycloak token URL, client ID, client secret, tên đăng nhập, mật khẩu).
