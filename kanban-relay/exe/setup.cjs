@@ -32,9 +32,14 @@ function runServer() {
 const readEnv = file => {
   const env = {};
   if (!fs.existsSync(file)) return env;
-  fs.readFileSync(file, "utf8").split(/\r?\n/).forEach(line => {
-    const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && !line.trim().startsWith("#")) env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  let text;
+  try {
+    const buf = fs.readFileSync(file);
+    text = buf[0] === 0xff && buf[1] === 0xfe ? buf.slice(2).toString("utf16le") : buf.toString("utf8").replace(/^﻿/, "");
+  } catch { return env; }
+  text.split(/\r?\n/).forEach(line => {
+    const m = /^\s*([A-Za-z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trim().startsWith("#")) env[m[1].toUpperCase()] = m[2].replace(/^["']|["']$/g, "");
   });
   return env;
 };
@@ -172,6 +177,23 @@ $f.ShowDialog() | Out-Null`, { KR_MSG: text.replace(/\n/g, "\r\n"), KR_OK: ok ? 
   } catch { /* không có giao diện: đã in ra cửa sổ dòng lệnh */ }
 }
 
+// Thử lấy token bằng tài khoản vừa nhập; trả về "" nếu được, hoặc lý do lỗi (không chứa mật khẩu)
+async function tryLogin(v) {
+  try {
+    const res = await fetch(v.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "password", client_id: v.clientId, client_secret: v.secret, username: v.user, password: v.pass }),
+      signal: AbortSignal.timeout(15000)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.access_token) return "";
+    return body.error_description || body.error || `HTTP ${res.status}`;
+  } catch (e) {
+    return `Không kết nối được tới ${v.tokenUrl} (${e.cause && e.cause.code || e.name || e.message})`;
+  }
+}
+
 /* ---------- Cài đặt ---------- */
 async function setup(rl) {
   console.log("\n=== Cài đặt Kanban relay ===\n");
@@ -193,8 +215,18 @@ async function setup(rl) {
     let gui = !has("--console");
     if (gui) {
       console.log("Nhập cấu hình và tài khoản trong cửa sổ cài đặt...");
-      try { v = formInput(cur, tok); } catch (e) { console.log("Không mở được cửa sổ cài đặt:", e.message); gui = false; }
-      if (gui && !v) { console.log("Đã huỷ cài đặt."); return; }
+      // Thử đăng nhập ngay; sai thì báo lỗi và mở lại cửa sổ (giữ các ô đã nhập, trừ ô bí mật)
+      for (;;) {
+        try { v = formInput(cur, tok); } catch (e) { console.log("Không mở được cửa sổ cài đặt:", e.message); gui = false; break; }
+        if (!v) { console.log("Đã huỷ cài đặt."); return; }
+        console.log("Đang thử đăng nhập...");
+        const err = await tryLogin(v);
+        if (!err) { console.log("Đăng nhập được."); break; }
+        console.log("Không đăng nhập được:", err);
+        messageBox(`Không đăng nhập được bằng tài khoản vừa nhập:\n\n${err}\n\nBấm Đóng để nhập lại.`, false);
+        Object.assign(cur, { PLANNING_URL: v.planning, PORT: v.port });
+        Object.assign(tok, { KC_TOKEN_URL: v.tokenUrl, KC_CLIENT_ID: v.clientId, KC_USERNAME: v.user, KC_CLIENT_SECRET: "", KC_PASSWORD: "" });
+      }
     }
     if (!gui) {
       console.log("1) Server planning");
@@ -275,6 +307,17 @@ async function status(rl) {
   }
   printAddresses(port);
   console.log("  Sửa cấu hình: KanbanRelay.exe --setup   ·   Gỡ: KanbanRelay.exe --uninstall");
+  return h;
+}
+
+// Mở lại cửa sổ cài đặt (tự xin quyền Administrator nếu cần)
+async function reSetup(rl) {
+  if (isAdmin()) { await setup(rl); return; }
+  try {
+    spawn("powershell", ["-NoProfile", "-Command",
+      `Start-Process -FilePath '${SELF.replace(/'/g, "''")}' -ArgumentList '--setup' -Verb RunAs`],
+    { stdio: "ignore", detached: true }).unref();
+  } catch { console.log("Chuột phải KanbanRelay.exe → Run as administrator, rồi chạy lại."); }
 }
 
 function uninstall() {
@@ -324,7 +367,14 @@ function startRelay(toLog) {
         await setup(rl);
       }
     } else {
-      await status(rl);
+      const h = await status(rl);
+      // Chưa đăng nhập được, hoặc đang chạy bản exe mới (ngoài thư mục cài): mời cài lại / cập nhật
+      const outside = path.resolve(SELF).toLowerCase() !== path.resolve(path.join(INSTALL_DIR, EXE_NAME)).toLowerCase();
+      const why = h && !h.ok ? "Relay chưa đăng nhập được." : !h ? "Relay chưa chạy." : outside ? "Đây là bản exe khác với bản đã cài." : "";
+      if (why && IS_SEA && !rl.closed) {
+        const a = await ask(rl, `\n  ${why} Mở cửa sổ cài đặt lại${outside ? " (cập nhật bản này vào C:\\KanbanRelay)" : ""}? (C/k)`, "C");
+        if (/^c/i.test(a)) { await reSetup(rl); return; }
+      }
     }
     await pause(rl);
   } finally {

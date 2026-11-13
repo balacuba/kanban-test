@@ -1391,8 +1391,11 @@ const KanbanScreen = () => {
     const es: EventSource | null = relay && typeof EventSource !== "undefined"
       ? new EventSource(`${relay}/events?wos=${encodeURIComponent(query.wos.join(","))}`) : null;
     if (es) {
-      es.addEventListener("ready", () => {
-        sse = true;
+      // Relay chưa đăng nhập được server planning (ok = false): vẫn tự hỏi mỗi REFRESH_MS như cũ
+      const relayOk = (e: Event) => { try { return !!JSON.parse((e as MessageEvent).data).ok; } catch { return false; } };
+      es.addEventListener("state", e => { sse = relayOk(e); });
+      es.addEventListener("ready", e => {
+        sse = relayOk(e);
         if (sseOpened) reloadNow();   // nối lại sau khi mất kết nối: có thể đã lỡ sự kiện
         sseOpened = true;
       });

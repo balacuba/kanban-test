@@ -45,22 +45,32 @@ const log = (...a) => console.log(new Date().toLocaleTimeString("vi-VN"), ...a);
 
 /* ---------- Token (Keycloak, grant_type=password), tự gia hạn ---------- */
 const auth = { token: "", expiresAt: 0, error: "", timer: null };
+// Đọc file KEY=VALUE; nhận cả file lưu bằng Notepad dạng Unicode (UTF-16)
+function readText(file) {
+  const buf = fs.readFileSync(file);
+  if (buf[0] === 0xff && buf[1] === 0xfe) return buf.slice(2).toString("utf16le");
+  return buf.toString("utf8").replace(/^﻿/, "");
+}
+const NEED = ["KC_TOKEN_URL", "KC_CLIENT_ID", "KC_CLIENT_SECRET", "KC_USERNAME", "KC_PASSWORD"];
+let missingKeys = [];
 function readTokenEnv() {
   if (!fs.existsSync(TOKEN_FILE)) return null;
   const env = {};
-  fs.readFileSync(TOKEN_FILE, "utf8").split(/\r?\n/).forEach(line => {
-    const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && !line.trim().startsWith("#")) env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  readText(TOKEN_FILE).split(/\r?\n/).forEach(line => {
+    const m = /^\s*([A-Za-z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trim().startsWith("#")) env[m[1].toUpperCase()] = m[2].replace(/^["']|["']$/g, "");
   });
-  const need = ["KC_TOKEN_URL", "KC_CLIENT_ID", "KC_CLIENT_SECRET", "KC_USERNAME", "KC_PASSWORD"];
-  return need.every(k => env[k]) ? env : null;
+  missingKeys = NEED.filter(k => !env[k]);
+  return missingKeys.length ? null : env;
 }
 async function refreshToken() {
   clearTimeout(auth.timer);
-  const env = readTokenEnv();
+  let env = null;
+  try { env = readTokenEnv(); } catch (e) { missingKeys = [`không đọc được file (${e.code || e.message})`]; }
   if (!env) {
     auth.token = "";
-    auth.error = fs.existsSync(TOKEN_FILE) ? "File tài khoản còn thiếu thông tin" : `Chưa có file tài khoản ${TOKEN_FILE}`;
+    // Chỉ nêu tên mục còn thiếu, không bao giờ in giá trị
+    auth.error = fs.existsSync(TOKEN_FILE) ? `File tài khoản ${TOKEN_FILE} thiếu: ${missingKeys.join(", ")}` : `Chưa có file tài khoản ${TOKEN_FILE}`;
     auth.timer = setTimeout(refreshToken, 30000);
     log("[token]", auth.error);
     return;
@@ -185,8 +195,9 @@ const server = http.createServer((req, res) => {
     let g = groups.get(key);
     if (!g) { g = { key, wos, clients: new Set(), sig: "", checking: false, error: "" }; groups.set(key, g); check(g); }
     g.clients.add(res);
-    send(res, "ready", { wos: wos.length });
-    const hb = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
+    // ok = relay đã đăng nhập server planning; chưa đăng nhập thì Kanban tự hỏi như cũ (báo lại mỗi HEARTBEAT_MS)
+    send(res, "ready", { wos: wos.length, ok: !!auth.token });
+    const hb = setInterval(() => send(res, "state", { ok: !!auth.token }), HEARTBEAT_MS);
     req.on("close", () => {
       clearInterval(hb);
       g.clients.delete(res);

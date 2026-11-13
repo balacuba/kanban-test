@@ -581,7 +581,7 @@ export const HourChart = ({ values, labels, color, type, night, chartKey }: Hour
 // Địa chỉ máy chủ Kanban relay (thư mục kanban-relay), vd. "http://172.22.7.5:8765". Để trống = không dùng relay,
 // Kanban tự hỏi server mỗi REFRESH_MS như cũ. Có thể đặt riêng từng máy mà không sửa code: window.KANBAN_RELAY_URL
 // (trước khi mở Kanban) hoặc localStorage "kanban-relay" (F12 → Console: localStorage.setItem("kanban-relay", "http://…")).
-export const KANBAN_RELAY_URL = "";
+export const KANBAN_RELAY_URL = "http://172.22.7.84:8765";
 export const RELAY_SAFETY_MS = 60000;   // đang nối relay: vẫn tự tải lại mỗi phút phòng khi lỡ sự kiện
 export function relayUrl(): string {
   let v: any = (window as any).KANBAN_RELAY_URL;
