@@ -76,6 +76,102 @@ async function health(port) {
   } catch { return null; }
 }
 
+/* ---------- Cửa sổ cài đặt (WinForms qua PowerShell có sẵn trong Windows) ---------- */
+function powershell(script, env) {
+  const { spawnSync } = require("node:child_process");
+  const enc = Buffer.from("[Console]::OutputEncoding=[Text.Encoding]::UTF8\n" + script, "utf16le").toString("base64");
+  const r = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-EncodedCommand", enc],
+    { env: Object.assign({}, process.env, env), encoding: "utf8", windowsHide: true, maxBuffer: 1 << 20 });
+  if (r.status !== 0) throw new Error((r.stderr || "").trim() || `powershell ${r.status}`);
+  return (r.stdout || "").trim();
+}
+
+const FORM_PS = String.raw`
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+[Windows.Forms.Application]::EnableVisualStyles()
+$f = New-Object Windows.Forms.Form
+$f.Text = 'Cài đặt Kanban relay'; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'
+$f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.TopMost = $true
+$f.Font = New-Object Drawing.Font('Segoe UI', 10); $f.ClientSize = New-Object Drawing.Size(520, 470)
+$y = 14
+function Head($t) { $l = New-Object Windows.Forms.Label; $l.Text = $t; $l.Font = New-Object Drawing.Font('Segoe UI', 10, [Drawing.FontStyle]::Bold)
+  $l.ForeColor = [Drawing.Color]::FromArgb(11, 69, 150); $l.Location = New-Object Drawing.Point(16, $script:y); $l.AutoSize = $true; $f.Controls.Add($l); $script:y += 28 }
+function Field($label, $value, $secret, $hint) {
+  $l = New-Object Windows.Forms.Label; $l.Text = $label; $l.Location = New-Object Drawing.Point(16, ($script:y + 3)); $l.Size = New-Object Drawing.Size(170, 22); $f.Controls.Add($l)
+  $t = New-Object Windows.Forms.TextBox; $t.Location = New-Object Drawing.Point(190, $script:y); $t.Size = New-Object Drawing.Size(310, 24); $t.Text = $value
+  if ($secret) { $t.UseSystemPasswordChar = $true }
+  $f.Controls.Add($t)
+  if ($hint) { $h = New-Object Windows.Forms.Label; $h.Text = $hint; $h.ForeColor = [Drawing.Color]::Gray; $h.Font = New-Object Drawing.Font('Segoe UI', 8)
+    $h.Location = New-Object Drawing.Point(190, ($script:y + 26)); $h.AutoSize = $true; $f.Controls.Add($h); $script:y += 16 }
+  $script:y += 34; return $t }
+Head '1. Server planning'
+$planning = Field 'Địa chỉ server' $env:KR_PLANNING $false ''
+$port = Field 'Cổng relay' $env:KR_PORT $false 'Kanban / TV trỏ về http://<IP máy này>:<cổng>'
+Head '2. Tài khoản để relay đọc số liệu'
+$tokenUrl = Field 'Keycloak token URL' $env:KR_TOKEN_URL $false ''
+$client = Field 'Client ID' $env:KR_CLIENT_ID $false ''
+$keep = if ($env:KR_HAS_SECRET -eq '1') { 'Để trống = giữ như cũ' } else { '' }
+$secret = Field 'Client secret' '' $true $keep
+$user = Field 'Tên đăng nhập' $env:KR_USER $false ''
+$pass = Field 'Mật khẩu' '' $true $keep
+$show = New-Object Windows.Forms.CheckBox; $show.Text = 'Hiện mật khẩu'; $show.Location = New-Object Drawing.Point(190, $y); $show.AutoSize = $true
+$show.Add_CheckedChanged({ $secret.UseSystemPasswordChar = -not $show.Checked; $pass.UseSystemPasswordChar = -not $show.Checked }); $f.Controls.Add($show)
+$y += 40
+$ok = New-Object Windows.Forms.Button; $ok.Text = 'Cài đặt'; $ok.Size = New-Object Drawing.Size(120, 34); $ok.Location = New-Object Drawing.Point(250, $y)
+$ok.BackColor = [Drawing.Color]::FromArgb(232, 131, 58); $ok.ForeColor = [Drawing.Color]::White; $ok.FlatStyle = 'Flat'
+$cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Hủy'; $cancel.Size = New-Object Drawing.Size(120, 34); $cancel.Location = New-Object Drawing.Point(380, $y)
+$cancel.DialogResult = 'Cancel'; $f.CancelButton = $cancel; $f.AcceptButton = $ok
+$f.Controls.Add($ok); $f.Controls.Add($cancel)
+$f.ClientSize = New-Object Drawing.Size(520, ($y + 50))
+$ok.Add_Click({
+  $miss = @()
+  if (-not $planning.Text.Trim()) { $miss += 'Địa chỉ server' }
+  if (-not ($port.Text.Trim() -match '^\d+$')) { $miss += 'Cổng relay (số)' }
+  if (-not $tokenUrl.Text.Trim()) { $miss += 'Keycloak token URL' }
+  if (-not $client.Text.Trim()) { $miss += 'Client ID' }
+  if (-not $user.Text.Trim()) { $miss += 'Tên đăng nhập' }
+  if (-not $secret.Text -and $env:KR_HAS_SECRET -ne '1') { $miss += 'Client secret' }
+  if (-not $pass.Text -and $env:KR_HAS_SECRET -ne '1') { $miss += 'Mật khẩu' }
+  if ($miss.Count) { [Windows.Forms.MessageBox]::Show("Còn thiếu: " + ($miss -join ', '), 'Kanban relay', 'OK', 'Warning') | Out-Null; return }
+  $f.DialogResult = 'OK'; $f.Close() })
+if ($f.ShowDialog() -ne 'OK') { 'null'; exit 0 }
+@{ planning = $planning.Text.Trim(); port = $port.Text.Trim(); tokenUrl = $tokenUrl.Text.Trim(); clientId = $client.Text.Trim()
+   secret = $secret.Text; user = $user.Text.Trim(); pass = $pass.Text } | ConvertTo-Json -Compress
+`;
+
+// Mở cửa sổ nhập cấu hình + tài khoản; null = bấm Hủy. Ô bí mật để trống = giữ giá trị cũ.
+function formInput(cur, tok) {
+  const out = powershell(FORM_PS, {
+    KR_PLANNING: cur.PLANNING_URL || "http://14.241.68.10:3000", KR_PORT: cur.PORT || "8765",
+    KR_TOKEN_URL: tok.KC_TOKEN_URL || "", KR_CLIENT_ID: tok.KC_CLIENT_ID || "", KR_USER: tok.KC_USERNAME || "",
+    KR_HAS_SECRET: tok.KC_CLIENT_SECRET && tok.KC_PASSWORD ? "1" : "0"
+  });
+  const v = JSON.parse(out || "null");
+  if (!v) return null;
+  return {
+    planning: v.planning, port: v.port, tokenUrl: v.tokenUrl, clientId: v.clientId, user: v.user,
+    secret: v.secret || tok.KC_CLIENT_SECRET || "", pass: v.pass || tok.KC_PASSWORD || ""
+  };
+}
+
+// Hộp thông báo kết quả (chữ có thể chọn / chép)
+function messageBox(text, ok) {
+  try {
+    powershell(String.raw`
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+[Windows.Forms.Application]::EnableVisualStyles()
+$f = New-Object Windows.Forms.Form; $f.Text = 'Kanban relay'; $f.StartPosition = 'CenterScreen'; $f.TopMost = $true
+$f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
+$f.Font = New-Object Drawing.Font('Segoe UI', 10); $f.ClientSize = New-Object Drawing.Size(520, 300)
+$t = New-Object Windows.Forms.TextBox; $t.Multiline = $true; $t.ReadOnly = $true; $t.BorderStyle = 'None'; $t.BackColor = $f.BackColor
+$t.Location = New-Object Drawing.Point(16, 16); $t.Size = New-Object Drawing.Size(488, 230); $t.Text = $env:KR_MSG
+if ($env:KR_OK -ne '1') { $t.ForeColor = [Drawing.Color]::FromArgb(179, 38, 30) }
+$b = New-Object Windows.Forms.Button; $b.Text = 'Đóng'; $b.Size = New-Object Drawing.Size(120, 34); $b.Location = New-Object Drawing.Point(384, 254)
+$b.DialogResult = 'OK'; $f.AcceptButton = $b; $f.Controls.Add($t); $f.Controls.Add($b); $f.ActiveControl = $b
+$f.ShowDialog() | Out-Null`, { KR_MSG: text.replace(/\n/g, "\r\n"), KR_OK: ok ? "1" : "0" });
+  } catch { /* không có giao diện: đã in ra cửa sổ dòng lệnh */ }
+}
+
 /* ---------- Cài đặt ---------- */
 async function setup(rl) {
   console.log("\n=== Cài đặt Kanban relay ===\n");
@@ -86,20 +182,34 @@ async function setup(rl) {
   const cur = Object.assign(readEnv(envFile), presetEnv), tok = Object.assign(readEnv(tokFile), presetTok);
   const KEYS = ["KC_TOKEN_URL", "KC_CLIENT_ID", "KC_CLIENT_SECRET", "KC_USERNAME", "KC_PASSWORD"];
   const auto = !has("--setup") && KEYS.every(k => presetTok[k]);
-  const pick = (q, key, def, hidden = false) => (auto ? Promise.resolve(def) : ask(rl, q, def, hidden));
-  if (auto) console.log(`Dùng tài khoản trong ${path.join(HERE, ".env.token")} — không cần nhập.\n`);
-
-  if (!auto) console.log("1) Server planning");
-  const planning = await pick("   Địa chỉ server planning (PLANNING_URL)", "PLANNING_URL", cur.PLANNING_URL || "http://14.241.68.10:3000");
-  const port = await pick("   Cổng relay", "PORT", cur.PORT || "8765");
-  const allow = await pick("   Trang được phép nghe (ALLOW_ORIGIN, * = mọi trang)", "ALLOW_ORIGIN", cur.ALLOW_ORIGIN || "*");
-
-  if (!auto) console.log("\n2) Tài khoản để relay đọc số liệu (nên dùng tài khoản chỉ có quyền đọc)");
-  const tokenUrl = await pick("   Keycloak token URL (KC_TOKEN_URL)", "KC_TOKEN_URL", tok.KC_TOKEN_URL || "");
-  const clientId = await pick("   Client ID", "KC_CLIENT_ID", tok.KC_CLIENT_ID || "");
-  const secret = await pick("   Client secret", "KC_CLIENT_SECRET", tok.KC_CLIENT_SECRET || "", true);
-  const user = await pick("   Tên đăng nhập", "KC_USERNAME", tok.KC_USERNAME || "");
-  const pass = await pick("   Mật khẩu", "KC_PASSWORD", tok.KC_PASSWORD || "", true);
+  const allow = cur.ALLOW_ORIGIN || "*";
+  let v;
+  if (auto) {
+    console.log(`Dùng tài khoản trong ${path.join(HERE, ".env.token")} — không cần nhập.\n`);
+    v = { planning: cur.PLANNING_URL || "http://14.241.68.10:3000", port: cur.PORT || "8765", tokenUrl: tok.KC_TOKEN_URL,
+      clientId: tok.KC_CLIENT_ID, secret: tok.KC_CLIENT_SECRET, user: tok.KC_USERNAME, pass: tok.KC_PASSWORD };
+  } else {
+    // Cửa sổ cài đặt; không mở được (máy không có giao diện / --console) thì hỏi trong cửa sổ dòng lệnh
+    let gui = !has("--console");
+    if (gui) {
+      console.log("Nhập cấu hình và tài khoản trong cửa sổ cài đặt...");
+      try { v = formInput(cur, tok); } catch (e) { console.log("Không mở được cửa sổ cài đặt:", e.message); gui = false; }
+      if (gui && !v) { console.log("Đã huỷ cài đặt."); return; }
+    }
+    if (!gui) {
+      console.log("1) Server planning");
+      const planning = await ask(rl, "   Địa chỉ server planning (PLANNING_URL)", cur.PLANNING_URL || "http://14.241.68.10:3000");
+      const port = await ask(rl, "   Cổng relay", cur.PORT || "8765");
+      console.log("\n2) Tài khoản để relay đọc số liệu (nên dùng tài khoản chỉ có quyền đọc)");
+      const tokenUrl = await ask(rl, "   Keycloak token URL (KC_TOKEN_URL)", tok.KC_TOKEN_URL || "");
+      const clientId = await ask(rl, "   Client ID", tok.KC_CLIENT_ID || "");
+      const secret = await ask(rl, "   Client secret", tok.KC_CLIENT_SECRET || "", true);
+      const user = await ask(rl, "   Tên đăng nhập", tok.KC_USERNAME || "");
+      const pass = await ask(rl, "   Mật khẩu", tok.KC_PASSWORD || "", true);
+      v = { planning, port, tokenUrl, clientId, secret, user, pass };
+    }
+  }
+  const { planning, port, tokenUrl, clientId, secret, user, pass } = v;
 
   fs.writeFileSync(envFile, [
     "# Cấu hình Kanban relay (sửa xong chạy lại: KanbanRelay.exe --setup, hoặc khởi động lại máy)",
@@ -133,11 +243,22 @@ async function setup(rl) {
   console.log("\n   Đang kiểm tra...");
   let h = null;
   for (let i = 0; i < 10 && !(h && h.ok); i++) { await new Promise(r => setTimeout(r, 1500)); h = await health(port); }
-  if (h && h.ok) console.log("   ✔ Relay đang chạy và đã lấy được token.");
-  else if (h) console.log(`   ✖ Relay chạy nhưng chưa lấy được token: ${h.tokenError || "?"} — kiểm tra lại tài khoản (KanbanRelay.exe --setup).`);
-  else console.log(`   ✖ Chưa thấy relay trả lời. Xem log: ${path.join(INSTALL_DIR, "relay.log")}`);
+  const result = h && h.ok ? "✔ Đã cài xong. Relay đang chạy và đã đăng nhập được."
+    : h ? `✖ Relay đã chạy nhưng chưa đăng nhập được: ${h.tokenError || "?"}\nKiểm tra lại tài khoản: chạy lại KanbanRelay.exe --setup.`
+      : `✖ Chưa thấy relay trả lời. Xem log: ${path.join(INSTALL_DIR, "relay.log")}`;
+  console.log("   " + result);
   printAddresses(port);
   console.log("  Gửi địa chỉ trên để cấu hình Kanban / TV trỏ về máy này.");
+  const list = ips();
+  messageBox([
+    result, "",
+    "Địa chỉ để Kanban / TV trỏ về (gửi địa chỉ này đi):",
+    ...(list.length ? list.map(ip => `    http://${ip}:${port}`) : [`    http://<IP máy này>:${port}`]),
+    "",
+    `Tự chạy khi bật máy: ${okTask ? "có" : "LỖI"}   ·   Tường lửa cổng ${port}: ${okFw ? "đã mở" : "LỖI"}`,
+    `Thư mục cài: ${INSTALL_DIR}`,
+    "Xem trạng thái: bấm đúp C:\\KanbanRelay\\KanbanRelay.exe"
+  ].join("\n"), !!(h && h.ok));
 }
 
 async function status(rl) {

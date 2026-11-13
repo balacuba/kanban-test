@@ -79,12 +79,15 @@ trang `https` gọi tới địa chỉ `http`.
    **Cài không cần nhập gì:** đặt file tài khoản `.env.token` (cùng định dạng `harness/.env.token`) cạnh
    `KanbanRelay.exe` (và nếu cần, `relay.env` để đổi server / cổng). Bấm đúp exe là cài luôn với tài khoản đó;
    cài xong nên xoá `.env.token` cạnh exe (bản đã cài nằm ở `C:\KanbanRelay`, chỉ Administrators đọc được).
-2. Bấm đúp `KanbanRelay.exe`. Lần đầu chương trình xin quyền Administrator rồi hỏi:
-   - địa chỉ server planning, cổng relay (mặc định 8765);
-   - tài khoản để relay đọc số liệu (Keycloak token URL, client ID, client secret, tên đăng nhập, mật khẩu).
-     Mật khẩu và client secret không hiện khi gõ; file tài khoản chỉ Administrators và SYSTEM đọc được.
+2. Bấm đúp `KanbanRelay.exe`, bấm **Yes** khi Windows xin quyền Administrator. Cửa sổ **Cài đặt Kanban relay** hiện ra:
+   - **Server planning:** địa chỉ server (mặc định `http://14.241.68.10:3000`), cổng relay (mặc định 8765);
+   - **Tài khoản:** Keycloak token URL, Client ID, Client secret, Tên đăng nhập, Mật khẩu. Mật khẩu và client secret
+     hiện dấu chấm (tick "Hiện mật khẩu" để xem lại). Thiếu ô nào chương trình sẽ nhắc.
+   Bấm **Cài đặt**. File tài khoản lưu ở `C:\KanbanRelay`, chỉ Administrators và SYSTEM đọc được.
 3. Chương trình tự cài vào `C:\KanbanRelay`, cho relay tự chạy khi bật máy (Task Scheduler "Kanban relay"), mở cổng
-   tường lửa, chạy relay và in ra địa chỉ để Kanban / TV trỏ về, ví dụ `http://172.22.88.27:8765`.
+   tường lửa, chạy relay, rồi hiện hộp kết quả: đã đăng nhập được chưa và địa chỉ để Kanban / TV trỏ về, ví dụ
+   `http://172.22.88.27:8765` (chọn được chữ để chép). Sai tài khoản: chạy `KanbanRelay.exe --setup` để nhập lại —
+   các ô bí mật để trống là giữ như cũ.
 4. Gửi địa chỉ đó để cấu hình `KANBAN_RELAY_URL` cho Kanban / TV.
 
 Sau khi cài:
