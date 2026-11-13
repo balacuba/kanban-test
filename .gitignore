@@ -22,3 +22,4 @@ android-tv/app/src/main/assets/web/
 kanban-relay/.env.token
 kanban-relay/relay.env
 kanban-relay/exe/dist/
+kanban-relay/exe/defaults.env

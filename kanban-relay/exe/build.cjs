@@ -23,8 +23,20 @@ server = server.replace(/fileURLToPath\(new URL\("\.\/([^"]+)", import\.meta\.ur
 if (/import\.meta|^import /m.test(server)) throw new Error("server.mjs còn cú pháp ESM chưa chuyển");
 const setup = fs.readFileSync(path.join(here, "setup.cjs"), "utf8");
 if (setup.indexOf("/*__SERVER__*/") < 0) throw new Error("setup.cjs thiếu /*__SERVER__*/");
+// Giá trị điền sẵn: exe/defaults.env (KEY=VALUE: PLANNING_URL, PORT, KC_TOKEN_URL, KC_CLIENT_ID, KC_CLIENT_SECRET).
+// Người build tự điền; file không đưa lên GitHub. Không có file thì dùng mặc định trong setup.cjs.
+const defaults = {};
+const defFile = path.join(here, "defaults.env");
+if (fs.existsSync(defFile)) {
+  fs.readFileSync(defFile, "utf8").replace(/^﻿/, "").split(/\r?\n/).forEach(line => {
+    const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trim().startsWith("#") && m[2]) defaults[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  });
+}
+console.log("Giá trị điền sẵn:", Object.keys(defaults).join(", ") || "(mặc định)");   // chỉ in tên, không in giá trị
+if (setup.indexOf("/*__DEFAULTS__*/{}") < 0) throw new Error("setup.cjs thiếu /*__DEFAULTS__*/{}");
 const bundle = path.join(dist, "kanban-relay-bundle.cjs");
-fs.writeFileSync(bundle, setup.replace("/*__SERVER__*/", () => server));
+fs.writeFileSync(bundle, setup.replace("/*__SERVER__*/", () => server).replace("/*__DEFAULTS__*/{}", () => JSON.stringify(defaults)));
 
 // 2. Blob SEA
 const cfg = path.join(dist, "sea-config.json");

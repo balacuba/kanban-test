@@ -16,6 +16,14 @@ const { execFileSync, spawn } = require("node:child_process");
 const INSTALL_DIR = process.env.KANBAN_RELAY_DIR || "C:\\KanbanRelay";
 const EXE_NAME = "KanbanRelay.exe";
 const TASK = "Kanban relay";
+// Giá trị điền sẵn trong cửa sổ cài đặt (người cài chỉ cần nhập tên đăng nhập + mật khẩu). Server planning, token URL,
+// client ID lấy theo cấu hình của ứng dụng planning; client secret (và giá trị khác) do người build đặt trong
+// exe/defaults.env lúc build (file không đưa lên GitHub) — xem build.cjs.
+const DEFAULTS = Object.assign({
+  PLANNING_URL: "http://14.241.68.10:3000", PORT: "8765",
+  KC_TOKEN_URL: "http://14.241.68.10:8800/auth/realms/QLSX/protocol/openid-connect/token",
+  KC_CLIENT_ID: "planning_react", KC_CLIENT_SECRET: ""
+}, /*__DEFAULTS__*/{});
 const IS_SEA = (() => { try { return require("node:sea").isSea(); } catch { return false; } })();
 const SELF = IS_SEA ? process.execPath : __filename;
 const HERE = path.dirname(SELF);
@@ -109,35 +117,56 @@ function Field($label, $value, $secret, $hint) {
   if ($hint) { $h = New-Object Windows.Forms.Label; $h.Text = $hint; $h.ForeColor = [Drawing.Color]::Gray; $h.Font = New-Object Drawing.Font('Segoe UI', 8)
     $h.Location = New-Object Drawing.Point(190, ($script:y + 26)); $h.AutoSize = $true; $f.Controls.Add($h); $script:y += 16 }
   $script:y += 34; return $t }
-Head '1. Server planning'
-$planning = Field 'Địa chỉ server' $env:KR_PLANNING $false ''
-$port = Field 'Cổng relay' $env:KR_PORT $false 'Kanban / TV trỏ về http://<IP máy này>:<cổng>'
-Head '2. Tài khoản để relay đọc số liệu'
-$tokenUrl = Field 'Keycloak token URL' $env:KR_TOKEN_URL $false ''
-$client = Field 'Client ID' $env:KR_CLIENT_ID $false ''
-$keep = if ($env:KR_HAS_SECRET -eq '1') { 'Để trống = giữ như cũ' } else { '' }
-$secret = Field 'Client secret' '' $true $keep
+Head 'Tài khoản để relay đọc số liệu'
 $user = Field 'Tên đăng nhập' $env:KR_USER $false ''
-$pass = Field 'Mật khẩu' '' $true $keep
+$keepPass = if ($env:KR_HAS_PASS -eq '1') { 'Để trống = giữ như cũ' } else { '' }
+$pass = Field 'Mật khẩu' '' $true $keepPass
 $show = New-Object Windows.Forms.CheckBox; $show.Text = 'Hiện mật khẩu'; $show.Location = New-Object Drawing.Point(190, $y); $show.AutoSize = $true
-$show.Add_CheckedChanged({ $secret.UseSystemPasswordChar = -not $show.Checked; $pass.UseSystemPasswordChar = -not $show.Checked }); $f.Controls.Add($show)
-$y += 40
-$ok = New-Object Windows.Forms.Button; $ok.Text = 'Cài đặt'; $ok.Size = New-Object Drawing.Size(120, 34); $ok.Location = New-Object Drawing.Point(250, $y)
+$f.Controls.Add($show)
+$y += 34
+# Cấu hình nâng cao: đã điền sẵn, thường không phải sửa (mở ra khi thiếu thông tin)
+$adv = New-Object Windows.Forms.LinkLabel; $adv.Text = 'Cấu hình nâng cao ▸'; $adv.Location = New-Object Drawing.Point(16, $y); $adv.AutoSize = $true
+$f.Controls.Add($adv)
+$y += 30
+$advTop = $y
+$panel = @()
+function AdvField($label, $value, $secret, $hint) { $before = @($f.Controls); $t = Field $label $value $secret $hint
+  $script:panel += @($f.Controls | Where-Object { $before -notcontains $_ }); return $t }
+$planning = AdvField 'Server planning' $env:KR_PLANNING $false ''
+$port = AdvField 'Cổng relay' $env:KR_PORT $false 'Kanban / TV trỏ về http://<IP máy này>:<cổng>'
+$tokenUrl = AdvField 'Keycloak token URL' $env:KR_TOKEN_URL $false 'Dạng http://<máy>:<cổng>/auth/realms/<realm>/protocol/openid-connect/token'
+$client = AdvField 'Client ID' $env:KR_CLIENT_ID $false ''
+$keepSecret = if ($env:KR_HAS_SECRET -eq '1') { 'Đã có sẵn — để trống = giữ nguyên' } else { 'Lấy từ người quản trị Keycloak' }
+$secret = AdvField 'Client secret' '' $true $keepSecret
+$advBottom = $y
+$show.Add_CheckedChanged({ $secret.UseSystemPasswordChar = -not $show.Checked; $pass.UseSystemPasswordChar = -not $show.Checked })
+$ok = New-Object Windows.Forms.Button; $ok.Text = 'Cài đặt'; $ok.Size = New-Object Drawing.Size(120, 34)
 $ok.BackColor = [Drawing.Color]::FromArgb(232, 131, 58); $ok.ForeColor = [Drawing.Color]::White; $ok.FlatStyle = 'Flat'
-$cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Hủy'; $cancel.Size = New-Object Drawing.Size(120, 34); $cancel.Location = New-Object Drawing.Point(380, $y)
+$cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Hủy'; $cancel.Size = New-Object Drawing.Size(120, 34)
 $cancel.DialogResult = 'Cancel'; $f.CancelButton = $cancel; $f.AcceptButton = $ok
 $f.Controls.Add($ok); $f.Controls.Add($cancel)
-$f.ClientSize = New-Object Drawing.Size(520, ($y + 50))
+function Layout($open) {
+  $panel | ForEach-Object { $_.Visible = $open }
+  $adv.Text = if ($open) { 'Cấu hình nâng cao ▾' } else { 'Cấu hình nâng cao ▸' }
+  $by = if ($open) { $advBottom + 6 } else { $advTop + 6 }
+  $ok.Location = New-Object Drawing.Point(250, $by); $cancel.Location = New-Object Drawing.Point(380, $by)
+  $f.ClientSize = New-Object Drawing.Size(520, ($by + 50)) }
+$adv.Add_LinkClicked({ Layout (-not $planning.Visible) })
+$needAdv = (-not $env:KR_TOKEN_URL) -or (-not $env:KR_CLIENT_ID) -or ($env:KR_HAS_SECRET -ne '1')
+Layout $needAdv
 $ok.Add_Click({
   $miss = @()
-  if (-not $planning.Text.Trim()) { $miss += 'Địa chỉ server' }
-  if (-not ($port.Text.Trim() -match '^\d+$')) { $miss += 'Cổng relay (số)' }
-  if (-not $tokenUrl.Text.Trim()) { $miss += 'Keycloak token URL' }
-  if (-not $client.Text.Trim()) { $miss += 'Client ID' }
   if (-not $user.Text.Trim()) { $miss += 'Tên đăng nhập' }
-  if (-not $secret.Text -and $env:KR_HAS_SECRET -ne '1') { $miss += 'Client secret' }
-  if (-not $pass.Text -and $env:KR_HAS_SECRET -ne '1') { $miss += 'Mật khẩu' }
-  if ($miss.Count) { [Windows.Forms.MessageBox]::Show("Còn thiếu: " + ($miss -join ', '), 'Kanban relay', 'OK', 'Warning') | Out-Null; return }
+  if (-not $pass.Text -and $env:KR_HAS_PASS -ne '1') { $miss += 'Mật khẩu' }
+  $advMiss = @()
+  if (-not $planning.Text.Trim()) { $advMiss += 'Server planning' }
+  if (-not ($port.Text.Trim() -match '^\d+$')) { $advMiss += 'Cổng relay (số)' }
+  if (-not ($tokenUrl.Text.Trim() -match '^https?://.+/protocol/openid-connect/token$')) { $advMiss += 'Keycloak token URL (địa chỉ đầy đủ)' }
+  if (-not $client.Text.Trim()) { $advMiss += 'Client ID' }
+  if (-not $secret.Text -and $env:KR_HAS_SECRET -ne '1') { $advMiss += 'Client secret' }
+  if ($advMiss.Count) { Layout $true }
+  $miss += $advMiss
+  if ($miss.Count) { [Windows.Forms.MessageBox]::Show("Còn thiếu / chưa đúng: " + ($miss -join ', '), 'Kanban relay', 'OK', 'Warning') | Out-Null; return }
   $f.DialogResult = 'OK'; $f.Close() })
 $f.ShowInTaskbar = $true; $f.Add_Shown({ $f.Activate(); $f.BringToFront() })
 if ($f.ShowDialog() -ne 'OK') { 'null'; exit 0 }
@@ -147,16 +176,18 @@ if ($f.ShowDialog() -ne 'OK') { 'null'; exit 0 }
 
 // Mở cửa sổ nhập cấu hình + tài khoản; null = bấm Hủy. Ô bí mật để trống = giữ giá trị cũ.
 function formInput(cur, tok) {
+  const secretDef = tok.KC_CLIENT_SECRET || DEFAULTS.KC_CLIENT_SECRET || "";
   const out = powershell(FORM_PS, {
-    KR_PLANNING: cur.PLANNING_URL || "http://14.241.68.10:3000", KR_PORT: cur.PORT || "8765",
-    KR_TOKEN_URL: tok.KC_TOKEN_URL || "", KR_CLIENT_ID: tok.KC_CLIENT_ID || "", KR_USER: tok.KC_USERNAME || "",
-    KR_HAS_SECRET: tok.KC_CLIENT_SECRET && tok.KC_PASSWORD ? "1" : "0"
+    KR_PLANNING: cur.PLANNING_URL || DEFAULTS.PLANNING_URL, KR_PORT: cur.PORT || DEFAULTS.PORT,
+    KR_TOKEN_URL: tok.KC_TOKEN_URL || DEFAULTS.KC_TOKEN_URL, KR_CLIENT_ID: tok.KC_CLIENT_ID || DEFAULTS.KC_CLIENT_ID,
+    KR_USER: tok.KC_USERNAME || "",
+    KR_HAS_SECRET: secretDef ? "1" : "0", KR_HAS_PASS: tok.KC_PASSWORD ? "1" : "0"
   });
   const v = JSON.parse(out || "null");
   if (!v) return null;
   return {
     planning: v.planning, port: v.port, tokenUrl: v.tokenUrl, clientId: v.clientId, user: v.user,
-    secret: v.secret || tok.KC_CLIENT_SECRET || "", pass: v.pass || tok.KC_PASSWORD || ""
+    secret: v.secret || secretDef, pass: v.pass || tok.KC_PASSWORD || ""
   };
 }
 
