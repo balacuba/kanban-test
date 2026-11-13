@@ -86,7 +86,7 @@ function powershell(script, env) {
   const { spawnSync } = require("node:child_process");
   const enc = Buffer.from("[Console]::OutputEncoding=[Text.Encoding]::UTF8\n" + script, "utf16le").toString("base64");
   const r = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-EncodedCommand", enc],
-    { env: Object.assign({}, process.env, env), encoding: "utf8", windowsHide: true, maxBuffer: 1 << 20 });
+    { env: Object.assign({}, process.env, env), encoding: "utf8", windowsHide: false, maxBuffer: 1 << 20 });
   if (r.status !== 0) throw new Error((r.stderr || "").trim() || `powershell ${r.status}`);
   return (r.stdout || "").trim();
 }
@@ -139,6 +139,7 @@ $ok.Add_Click({
   if (-not $pass.Text -and $env:KR_HAS_SECRET -ne '1') { $miss += 'Mật khẩu' }
   if ($miss.Count) { [Windows.Forms.MessageBox]::Show("Còn thiếu: " + ($miss -join ', '), 'Kanban relay', 'OK', 'Warning') | Out-Null; return }
   $f.DialogResult = 'OK'; $f.Close() })
+$f.ShowInTaskbar = $true; $f.Add_Shown({ $f.Activate(); $f.BringToFront() })
 if ($f.ShowDialog() -ne 'OK') { 'null'; exit 0 }
 @{ planning = $planning.Text.Trim(); port = $port.Text.Trim(); tokenUrl = $tokenUrl.Text.Trim(); clientId = $client.Text.Trim()
    secret = $secret.Text; user = $user.Text.Trim(); pass = $pass.Text } | ConvertTo-Json -Compress
@@ -173,6 +174,7 @@ $t.Location = New-Object Drawing.Point(16, 16); $t.Size = New-Object Drawing.Siz
 if ($env:KR_OK -ne '1') { $t.ForeColor = [Drawing.Color]::FromArgb(179, 38, 30) }
 $b = New-Object Windows.Forms.Button; $b.Text = 'Đóng'; $b.Size = New-Object Drawing.Size(120, 34); $b.Location = New-Object Drawing.Point(384, 254)
 $b.DialogResult = 'OK'; $f.AcceptButton = $b; $f.Controls.Add($t); $f.Controls.Add($b); $f.ActiveControl = $b
+$f.ShowInTaskbar = $true; $f.Add_Shown({ $f.Activate(); $f.BringToFront() })
 $f.ShowDialog() | Out-Null`, { KR_MSG: text.replace(/\n/g, "\r\n"), KR_OK: ok ? "1" : "0" });
   } catch { /* không có giao diện: đã in ra cửa sổ dòng lệnh */ }
 }
