@@ -81,19 +81,25 @@ async function setup(rl) {
   console.log("\n=== Cài đặt Kanban relay ===\n");
   fs.mkdirSync(INSTALL_DIR, { recursive: true });
   const envFile = path.join(INSTALL_DIR, "relay.env"), tokFile = path.join(INSTALL_DIR, ".env.token");
-  const cur = readEnv(envFile), tok = readEnv(tokFile);
+  // File tài khoản / cấu hình đặt sẵn cạnh exe (cùng định dạng harness/.env.token): cài luôn, không hỏi gì
+  const presetTok = readEnv(path.join(HERE, ".env.token")), presetEnv = readEnv(path.join(HERE, "relay.env"));
+  const cur = Object.assign(readEnv(envFile), presetEnv), tok = Object.assign(readEnv(tokFile), presetTok);
+  const KEYS = ["KC_TOKEN_URL", "KC_CLIENT_ID", "KC_CLIENT_SECRET", "KC_USERNAME", "KC_PASSWORD"];
+  const auto = !has("--setup") && KEYS.every(k => presetTok[k]);
+  const pick = (q, key, def, hidden = false) => (auto ? Promise.resolve(def) : ask(rl, q, def, hidden));
+  if (auto) console.log(`Dùng tài khoản trong ${path.join(HERE, ".env.token")} — không cần nhập.\n`);
 
-  console.log("1) Server planning");
-  const planning = await ask(rl, "   Địa chỉ server planning (PLANNING_URL)", cur.PLANNING_URL || "http://14.241.68.10:3000");
-  const port = await ask(rl, "   Cổng relay", cur.PORT || "8765");
-  const allow = await ask(rl, "   Trang được phép nghe (ALLOW_ORIGIN, * = mọi trang)", cur.ALLOW_ORIGIN || "*");
+  if (!auto) console.log("1) Server planning");
+  const planning = await pick("   Địa chỉ server planning (PLANNING_URL)", "PLANNING_URL", cur.PLANNING_URL || "http://14.241.68.10:3000");
+  const port = await pick("   Cổng relay", "PORT", cur.PORT || "8765");
+  const allow = await pick("   Trang được phép nghe (ALLOW_ORIGIN, * = mọi trang)", "ALLOW_ORIGIN", cur.ALLOW_ORIGIN || "*");
 
-  console.log("\n2) Tài khoản để relay đọc số liệu (nên dùng tài khoản chỉ có quyền đọc)");
-  const tokenUrl = await ask(rl, "   Keycloak token URL (KC_TOKEN_URL)", tok.KC_TOKEN_URL || "");
-  const clientId = await ask(rl, "   Client ID", tok.KC_CLIENT_ID || "");
-  const secret = await ask(rl, "   Client secret", tok.KC_CLIENT_SECRET || "", true);
-  const user = await ask(rl, "   Tên đăng nhập", tok.KC_USERNAME || "");
-  const pass = await ask(rl, "   Mật khẩu", tok.KC_PASSWORD || "", true);
+  if (!auto) console.log("\n2) Tài khoản để relay đọc số liệu (nên dùng tài khoản chỉ có quyền đọc)");
+  const tokenUrl = await pick("   Keycloak token URL (KC_TOKEN_URL)", "KC_TOKEN_URL", tok.KC_TOKEN_URL || "");
+  const clientId = await pick("   Client ID", "KC_CLIENT_ID", tok.KC_CLIENT_ID || "");
+  const secret = await pick("   Client secret", "KC_CLIENT_SECRET", tok.KC_CLIENT_SECRET || "", true);
+  const user = await pick("   Tên đăng nhập", "KC_USERNAME", tok.KC_USERNAME || "");
+  const pass = await pick("   Mật khẩu", "KC_PASSWORD", tok.KC_PASSWORD || "", true);
 
   fs.writeFileSync(envFile, [
     "# Cấu hình Kanban relay (sửa xong chạy lại: KanbanRelay.exe --setup, hoặc khởi động lại máy)",
