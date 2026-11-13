@@ -78,6 +78,27 @@ const AutoTokenBadge = ({ st }: { st: AutoToken }) => (
   </span>
 );
 
+// ?tabs=2: giả lập nhiều tab màn hình Kanban của Jmix (tab đang ẩn vẫn giữ trong trang, display: none)
+const TABS = Number(new URLSearchParams(location.search).get("tabs")) || 1;
+const MultiTabs = () => {
+  const [cur, setCur] = React.useState(0);
+  return (
+    <>
+      <div style={{ display: "flex", gap: 4, padding: "4px 8px", background: "#e6e9ef" }}>
+        {Array.from({ length: TABS }, (_, i) => (
+          <button key={i} className={"harness-tab" + (i === cur ? " on" : "")} onClick={() => setCur(i)}
+            style={{ fontWeight: i === cur ? 700 : 400 }}>Kanban {i + 1}</button>
+        ))}
+      </div>
+      {Array.from({ length: TABS }, (_, i) => (
+        <div key={i} className="harness-screen" style={{ flex: 1, overflow: "auto", display: i === cur ? "block" : "none" }}>
+          <HourlyOutputReport />
+        </div>
+      ))}
+    </>
+  );
+};
+
 // Khung giả của ứng dụng: thanh menu phía trên + vùng màn hình bên dưới (như trong Jmix)
 const App = () => {
   const auto = useAutoToken();
@@ -91,9 +112,11 @@ const App = () => {
         {useAuto && <AutoTokenBadge st={auto as AutoToken} />}
         {REAL && !useAuto && <TokenBox />}
       </div>
-      <div id="screen" style={{ flex: 1, overflow: "auto" }}>
-        <HourlyOutputReport />
-      </div>
+      {TABS > 1 ? <MultiTabs /> : (
+        <div id="screen" style={{ flex: 1, overflow: "auto" }}>
+          <HourlyOutputReport />
+        </div>
+      )}
     </div>
   );
 };

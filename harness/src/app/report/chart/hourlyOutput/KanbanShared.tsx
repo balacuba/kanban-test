@@ -577,6 +577,10 @@ export const HourChart = ({ values, labels, color, type, night, chartKey }: Hour
   );
 };
 
+// Kanban đang hiện trên màn hình: trang không bị ẩn và khung Kanban không nằm trong tab / màn hình đang ẩn của ứng dụng
+// (display: none → không có khung hình chữ nhật nào). Dùng để Kanban đang ẩn không tự tải lại.
+export const kanbanShown = (el: HTMLElement | null) => !document.hidden && (!el || el.getClientRects().length > 0);
+
 /* ================= Phóng to biểu đồ thành popup ================= */
 // Nút ⤢ ở thanh tiêu đề: mở biểu đồ thành popup gần toàn màn hình; trong popup là nút ✕ để thu nhỏ
 export const ZoomButton = ({ open, onClick }: { open: boolean; onClick: () => void }) => {

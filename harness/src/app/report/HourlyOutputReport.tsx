@@ -16,7 +16,7 @@ import { usePeriodYield, YieldSource } from "./chart/hourlyOutput/yieldPeriods";
 import { exportKanbanExcel } from "./chart/hourlyOutput/KanbanExcel";
 import {
   ALL_DAY, ALL_SHIFT, HOURS, I18nProvider, LANGS, MAX_DAYS, REFRESH_MS, SHIFTS, shiftOf, SLOTS, SLOT_HOUR,
-  addDays, captureCharts, ChartPopup, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
+  addDays, captureCharts, ChartPopup, kanbanShown, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
   useClickOutside, useCurrentShift, useFitToScreen, useI18n, ZoomButton
 } from "./chart/hourlyOutput/KanbanShared";
 
@@ -504,7 +504,11 @@ function StageMultiSelect({ stages, selected, onChange }: { stages: string[]; se
 const WO_MENU_MAX = 300; // số dòng hiện tối đa trong danh sách (gõ thêm để lọc)
 const parseWos = (v: string) => v.split(",").map(s => s.trim()).filter((s, i, a) => s && a.indexOf(s) === i);
 
-function WoCombo({ items, value, onChange, onPick, placeholder, allLabel, multiLabel }: {
+// Số thứ tự Kanban trên trang: mỗi Kanban có tiền tố id riêng (wd1-, wd2-…)
+let wdSeq = 0;
+
+function WoCombo({ uid, items, value, onChange, onPick, placeholder, allLabel, multiLabel }: {
+  uid: string;
   items: string[];
   allLabel?: string;   // có model: dòng đầu = tất cả WO của model (giá trị ALL_WO)
   multiLabel: (n: number) => string;
@@ -570,9 +574,9 @@ function WoCombo({ items, value, onChange, onPick, placeholder, allLabel, multiL
   return (
     <div className="wo-combo" ref={ref}>
       <input
-        id="wd-wo" className="wo-input" autoComplete="off" value={open ? query : summary}
+        id={`${uid}-wo`} className="wo-input" autoComplete="off" value={open ? query : summary}
         placeholder={open ? summary || placeholder : placeholder} title={summary}
-        role="combobox" aria-expanded={open} aria-controls="wd-wo-menu"
+        role="combobox" aria-expanded={open} aria-controls={`${uid}-wo-menu`}
         onFocus={() => { if (!open) show(); }}
         onClick={() => { if (!open) show(); }}
         onChange={e => { setQuery(e.target.value); setHi(0); if (!open) { openedWith.current = value; setOpen(true); } }}
@@ -592,7 +596,7 @@ function WoCombo({ items, value, onChange, onPick, placeholder, allLabel, multiL
       <button type="button" className={`wo-combo-btn${open ? " open" : ""}`} tabIndex={-1} aria-label="WO-Line"
         onClick={() => (open ? close() : show())} />
       {open && (
-        <ul className="wo-menu" id="wd-wo-menu" role="listbox" aria-multiselectable="true" ref={listRef}>
+        <ul className="wo-menu" id={`${uid}-wo-menu`} role="listbox" aria-multiselectable="true" ref={listRef}>
           {list.length ? list.map((w, i) => (
             <li key={w} role="option" aria-selected={checked(w)}
               className={`${i === hi ? "hi" : ""}${checked(w) ? " sel" : ""}${w === ALL_WO ? " all" : ""}`}
@@ -661,6 +665,7 @@ interface FilterBarProps {
 }
 
 function FilterBar(p: FilterBarProps) {
+  const [uid] = useState(() => `wd${++wdSeq}`);
   const { t } = useI18n();
   return (
     <header className="wd-header">
@@ -679,7 +684,7 @@ function FilterBar(p: FilterBarProps) {
             </svg>
           </button>
           <button type="button" className={`search-toggle${p.open ? " on" : ""}`} onClick={() => p.onOpen(!p.open)}
-            aria-expanded={p.open} aria-controls="wd-filters" title={p.open ? t("search.hide") : t("search.show")}>
+            aria-expanded={p.open} aria-controls={`${uid}-filters`} title={p.open ? t("search.hide") : t("search.show")}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               {p.open ? <path d="M6 6l12 12M18 6 6 18" /> : <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>}
             </svg>
@@ -687,44 +692,44 @@ function FilterBar(p: FilterBarProps) {
         </div>
       </div>
       {p.open && (
-        <div className="filters" id="wd-filters">
+        <div className="filters" id={`${uid}-filters`}>
           {/* Model → Tên sản phẩm → Dây chuyền → WO-Line */}
           <div className="field">
-            <label htmlFor="wd-model">{t("f.model")}</label>
+            <label htmlFor={`${uid}-model`}>{t("f.model")}</label>
             {/* Model = trường note của WO (vd. BAM2510, M6); chọn model thì ô WO-Line chỉ còn WO của model đó */}
-            <select id="wd-model" className="model-sel" value={p.model} onChange={e => p.onModel(e.target.value)}>
+            <select id={`${uid}-model`} className="model-sel" value={p.model} onChange={e => p.onModel(e.target.value)}>
               <option value="">{t("f.modelAll")}</option>
               {p.models.map(m => <option key={m.name} value={m.name}>{m.name} ({m.count})</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="wd-product">{t("f.product")}</label>
+            <label htmlFor={`${uid}-product`}>{t("f.product")}</label>
             {/* Tên sản phẩm = productName của WO; chỉ hiện sản phẩm có WO của model đang chọn */}
-            <select id="wd-product" className="product-sel" value={p.product} onChange={e => p.onProduct(e.target.value)}
+            <select id={`${uid}-product`} className="product-sel" value={p.product} onChange={e => p.onProduct(e.target.value)}
               title={p.product}>
               <option value="">{t("f.productAll")}</option>
               {p.products.map(m => <option key={m.name} value={m.name}>{m.name} ({m.count})</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="wd-line">{t("f.line")}</label>
+            <label htmlFor={`${uid}-line`}>{t("f.line")}</label>
             {/* Dây chuyền = trường line của WO (trống thì lấy groupCode), vd. SMT, ASSY, PACKING; chỉ hiện dây chuyền có WO của model */}
-            <select id="wd-line" className="model-sel" value={p.line} onChange={e => p.onLine(e.target.value)}>
+            <select id={`${uid}-line`} className="model-sel" value={p.line} onChange={e => p.onLine(e.target.value)}>
               <option value="">{t("f.lineAll")}</option>
               {p.lines.map(m => <option key={m.name} value={m.name}>{m.name} ({m.count})</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="wd-wo">{t("f.wo")}</label>
-            <WoCombo items={p.woLines} value={p.woLine} onChange={p.onWoLine} onPick={w => p.onSearch(w)}
+            <label htmlFor={`${uid}-wo`}>{t("f.wo")}</label>
+            <WoCombo uid={uid} items={p.woLines} value={p.woLine} onChange={p.onWoLine} onPick={w => p.onSearch(w)}
               placeholder={t("f.woPlaceholder")}
               allLabel={p.model || p.product ? t("f.woAll") : undefined} multiLabel={n => t("f.woN", { n })} />
           </div>
           <div className="field">
-            <label htmlFor="wd-date">{t("f.date")}</label>
+            <label htmlFor={`${uid}-date`}>{t("f.date")}</label>
             {/* Lọc từ ngày → đến ngày; chọn ngược thì tự đảo lại */}
             <div className="range date-range">
-              <input id="wd-date" type="date" value={p.dates.from} max={p.dates.to}
+              <input id={`${uid}-date`} type="date" value={p.dates.from} max={p.dates.to}
                 onChange={e => e.target.value && p.onDates(e.target.value, p.dates.to)} aria-label={t("f.dateFrom")} />
               <span className="range-sep">→</span>
               <input type="date" value={p.dates.to} min={p.dates.from}
@@ -732,17 +737,17 @@ function FilterBar(p: FilterBarProps) {
             </div>
           </div>
           <div className="field">
-            <label htmlFor="wd-shift">{t("f.shift")}</label>
-            <select id="wd-shift" className="shift-sel" value={p.shiftMode} onChange={e => p.onShiftMode(e.target.value)}>
+            <label htmlFor={`${uid}-shift`}>{t("f.shift")}</label>
+            <select id={`${uid}-shift`} className="shift-sel" value={p.shiftMode} onChange={e => p.onShiftMode(e.target.value)}>
               <option value="auto">{t("f.auto", { shift: t(`shift.${SHIFTS[p.autoShift].key}`) })}</option>
               {SHIFTS.map((s, si) => <option key={s.key} value={String(si)}>{t(`shift.${s.key}`)} ({shiftRange(s, t("nextDay"))})</option>)}
               <option value={String(ALL_SHIFT)}>{t("shift.all")} ({shiftRange(ALL_DAY, t("nextDay"))})</option>
             </select>
           </div>
           <div className="field">
-            <label htmlFor="wd-from">{t("f.hours")}</label>
+            <label htmlFor={`${uid}-from`}>{t("f.hours")}</label>
             <div className="range">
-              <select id="wd-from" value={p.from} onChange={e => p.onRange(+e.target.value, p.to)}>
+              <select id={`${uid}-from`} value={p.from} onChange={e => p.onRange(+e.target.value, p.to)}>
                 {p.slotOptions.map(i => <option key={i} value={i}>{SLOTS[i]}</option>)}
               </select>
               <span className="range-sep">→</span>
@@ -1374,10 +1379,17 @@ const KanbanScreen = () => {
     load(false);
     // Khoảng ngày dài (> 31 ngày, xem theo tháng / năm): tự tải lại mỗi phút thay vì mỗi REFRESH_MS cho đỡ nặng server
     const long = listDays(query.dateFrom, query.dateTo, Number.MAX_SAFE_INTEGER).length > 31;
-    const id = setInterval(() => load(true), long ? 60000 : REFRESH_MS);
-    const onShow = () => { if (!document.hidden) load(true); };
+    // Mở nhiều Kanban (nhiều tab màn hình của ứng dụng): Kanban đang ẩn không tự tải, chỉ Kanban đang xem gửi yêu cầu
+    // (server dễ trả 502 khi nhiều Kanban cùng tải). Bỏ lỡ lần tự tải khi đang ẩn thì hiện lại là tải ngay.
+    let missed = false;
+    const id = setInterval(() => { if (kanbanShown(rootRef.current)) load(true); else missed = true; }, long ? 60000 : REFRESH_MS);
+    const onShow = () => { if (!document.hidden && kanbanShown(rootRef.current)) { missed = false; load(true); } };
+    const RO: any = (window as any).ResizeObserver;
+    const ro = RO && rootRef.current
+      ? new RO(() => { if (missed && kanbanShown(rootRef.current)) { missed = false; load(true); } }) : null;
+    if (ro) ro.observe(rootRef.current);
     document.addEventListener("visibilitychange", onShow);
-    return () => { alive = false; clearInterval(id); document.removeEventListener("visibilitychange", onShow); };
+    return () => { alive = false; clearInterval(id); if (ro) ro.disconnect(); document.removeEventListener("visibilitychange", onShow); };
   }, [query, reloadKey, authToken]);
 
   // Tự chuyển ca: khi qua mốc đổi ca, về khung giờ đầy đủ của ca mới. Đang xem một ngày thì chuyển sang
@@ -1597,9 +1609,9 @@ const KanbanScreen = () => {
     return { wos: ([] as string[]).concat(...groups.map(g => g.wos)), groups };
   }, [data]);
   const periods = {
-    day: usePeriodYield(yieldSrc, "day", authToken),
-    month: usePeriodYield(yieldSrc, "month", authToken),
-    year: usePeriodYield(yieldSrc, "year", authToken)
+    day: usePeriodYield(yieldSrc, "day", authToken, rootRef),
+    month: usePeriodYield(yieldSrc, "month", authToken, rootRef),
+    year: usePeriodYield(yieldSrc, "year", authToken, rootRef)
   };
 
   // Xuất Excel đúng phần đang xem + ảnh các biểu đồ

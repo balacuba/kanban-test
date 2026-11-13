@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { PLANNING_API_URL } from "../../../../config";
-import { addDays, pad2, productionDate, SHIFTS } from "./KanbanShared";
+import { addDays, kanbanShown, pad2, productionDate, SHIFTS } from "./KanbanShared";
 
 /**
  * Tỷ lệ đạt theo ngày / tháng / năm cho biểu đồ "Tỷ lệ đạt / Input" — tự lấy, không theo bộ lọc ngày / ca / khung giờ /
@@ -117,7 +117,9 @@ const srcKey = (src: YieldSource) =>
   src.groups.map(g => `${g.stage}:${g.wos.slice().sort().join(",")}`).sort().join(";");
 
 /** Số liệu của một kiểu kỳ; null khi đang tải lần đầu. Lỗi khi đếm thì kỳ đó = 0 (thử lại ở lần sau). */
-export function usePeriodYield(src: YieldSource | null, period: Period, authToken?: string) {
+// root: khung Kanban — đang ẩn (tab khác của ứng dụng) thì bỏ qua lần đếm lại mỗi phút
+export function usePeriodYield(src: YieldSource | null, period: Period, authToken?: string,
+  root?: { current: HTMLElement | null }) {
   const [data, setData] = useState<PeriodSeries | null>(null);
   const key = src ? srcKey(src) : "";
   useEffect(() => {
@@ -143,7 +145,7 @@ export function usePeriodYield(src: YieldSource | null, period: Period, authToke
       setData({ keys: list.map(s => s.key), labels: list.map(s => s.label), input: vals.map(v => v[0]), fail: vals.map(v => v[1]) });
     };
     run(true);
-    const id = setInterval(() => run(false), REFRESH);
+    const id = setInterval(() => { if (kanbanShown(root ? root.current : null)) run(false); }, REFRESH);
     return () => { alive = false; clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, period, authToken]);
