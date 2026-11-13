@@ -16,7 +16,7 @@ import { usePeriodYield, YieldSource } from "./chart/hourlyOutput/yieldPeriods";
 import { exportKanbanExcel } from "./chart/hourlyOutput/KanbanExcel";
 import {
   ALL_DAY, ALL_SHIFT, HOURS, I18nProvider, LANGS, MAX_DAYS, REFRESH_MS, SHIFTS, shiftOf, SLOTS, SLOT_HOUR,
-  addDays, captureCharts, ChartPopup, kanbanShown, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
+  addDays, captureCharts, ChartPopup, kanbanShown, relayUrl, RELAY_SAFETY_MS, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
   useClickOutside, useCurrentShift, useFitToScreen, useI18n, ZoomButton
 } from "./chart/hourlyOutput/KanbanShared";
 
@@ -1381,15 +1381,39 @@ const KanbanScreen = () => {
     const long = listDays(query.dateFrom, query.dateTo, Number.MAX_SAFE_INTEGER).length > 31;
     // Mở nhiều Kanban (nhiều tab màn hình của ứng dụng): Kanban đang ẩn không tự tải, chỉ Kanban đang xem gửi yêu cầu
     // (server dễ trả 502 khi nhiều Kanban cùng tải). Bỏ lỡ lần tự tải khi đang ẩn thì hiện lại là tải ngay.
-    let missed = false;
-    const id = setInterval(() => { if (kanbanShown(rootRef.current)) load(true); else missed = true; }, long ? 60000 : REFRESH_MS);
-    const onShow = () => { if (!document.hidden && kanbanShown(rootRef.current)) { missed = false; load(true); } };
+    let missed = false, lastLoad = Date.now();
+    const reloadNow = () => { missed = false; lastLoad = Date.now(); load(true); };
+    // Có Kanban relay (SSE, xem kanban-relay/): relay báo khi WO đang xem có bản ghi test mới thì mới tải lại, thay vì tự
+    // hỏi mỗi REFRESH_MS — mở nhiều Kanban / nhiều TV, server planning chỉ bị relay hỏi một lần. Mất kết nối relay thì
+    // tự quay về tự hỏi như cũ (EventSource tự nối lại); đang nối relay vẫn tải lại mỗi RELAY_SAFETY_MS cho chắc.
+    let sse = false, sseOpened = false;
+    const relay = relayUrl();
+    const es: EventSource | null = relay && typeof EventSource !== "undefined"
+      ? new EventSource(`${relay}/events?wos=${encodeURIComponent(query.wos.join(","))}`) : null;
+    if (es) {
+      es.addEventListener("ready", () => {
+        sse = true;
+        if (sseOpened) reloadNow();   // nối lại sau khi mất kết nối: có thể đã lỡ sự kiện
+        sseOpened = true;
+      });
+      es.addEventListener("update", () => { if (kanbanShown(rootRef.current)) reloadNow(); else missed = true; });
+      es.onerror = () => { sse = false; };
+    }
+    const id = setInterval(() => {
+      if (!kanbanShown(rootRef.current)) { missed = true; return; }
+      if (sse && Date.now() - lastLoad < RELAY_SAFETY_MS) return;
+      reloadNow();
+    }, long ? 60000 : REFRESH_MS);
+    const onShow = () => { if (!document.hidden && kanbanShown(rootRef.current)) reloadNow(); };
     const RO: any = (window as any).ResizeObserver;
     const ro = RO && rootRef.current
-      ? new RO(() => { if (missed && kanbanShown(rootRef.current)) { missed = false; load(true); } }) : null;
+      ? new RO(() => { if (missed && kanbanShown(rootRef.current)) reloadNow(); }) : null;
     if (ro) ro.observe(rootRef.current);
     document.addEventListener("visibilitychange", onShow);
-    return () => { alive = false; clearInterval(id); if (ro) ro.disconnect(); document.removeEventListener("visibilitychange", onShow); };
+    return () => {
+      alive = false; clearInterval(id); if (ro) ro.disconnect(); if (es) es.close();
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [query, reloadKey, authToken]);
 
   // Tự chuyển ca: khi qua mốc đổi ca, về khung giờ đầy đủ của ca mới. Đang xem một ngày thì chuyển sang

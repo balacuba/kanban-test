@@ -165,3 +165,12 @@ Không đưa tài khoản / mật khẩu / client_secret vào code giao diện.
 - `get-daily-report` đếm `stageN_pass` là số sản phẩm đi tiếp sang công đoạn sau (công đoạn cuối luôn 0).
   Kanban hiện đúng số API; nên đề nghị backend sửa để Pass là số Pass tại chính công đoạn.
 - `get-daily-report` chỉ chia giờ 6:00–20:00, ca đêm gần như không có số theo giờ.
+
+## Mở nhiều Kanban / Kanban relay (SSE)
+
+- Mở nhiều Kanban trong cùng ứng dụng: mỗi Kanban có id ô lọc riêng; Kanban đang ẩn (tab màn hình khác) không tự tải,
+  hiện lại thì tải ngay.
+- Nhiều Kanban / nhiều TV cùng xem: có thể chạy máy chủ trung gian **Kanban relay** (thư mục `kanban-relay`). Relay hỏi
+  server planning một lần rồi báo cho mọi Kanban qua Server-Sent Events khi có số liệu mới; Kanban chỉ tải lại khi đó.
+  Bật bằng `KANBAN_RELAY_URL` trong `KanbanShared.tsx` (hoặc `localStorage "kanban-relay"` cho từng máy). Không có
+  relay thì Kanban tự hỏi mỗi 5 giây như cũ. Xem `kanban-relay/HUONG_DAN.md`.
