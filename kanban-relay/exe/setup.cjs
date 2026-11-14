@@ -177,9 +177,14 @@ if ($f.ShowDialog() -ne 'OK') { 'null'; exit 0 }
 // Mở cửa sổ nhập cấu hình + tài khoản; null = bấm Hủy. Ô bí mật để trống = giữ giá trị cũ.
 function formInput(cur, tok) {
   const secretDef = tok.KC_CLIENT_SECRET || DEFAULTS.KC_CLIENT_SECRET || "";
+  // Giá trị đã lưu từ lần cài trước nhưng sai dạng (vd. token URL = "kanban") thì dùng lại giá trị mặc định
+  const okUrl = u => /^https?:\/\/.+\/protocol\/openid-connect\/token$/.test(String(u || "").trim());
+  const okHttp = u => /^https?:\/\/\S+$/.test(String(u || "").trim());
   const out = powershell(FORM_PS, {
-    KR_PLANNING: cur.PLANNING_URL || DEFAULTS.PLANNING_URL, KR_PORT: cur.PORT || DEFAULTS.PORT,
-    KR_TOKEN_URL: tok.KC_TOKEN_URL || DEFAULTS.KC_TOKEN_URL, KR_CLIENT_ID: tok.KC_CLIENT_ID || DEFAULTS.KC_CLIENT_ID,
+    KR_PLANNING: okHttp(cur.PLANNING_URL) ? cur.PLANNING_URL : DEFAULTS.PLANNING_URL,
+    KR_PORT: /^\d+$/.test(String(cur.PORT || "")) ? cur.PORT : DEFAULTS.PORT,
+    KR_TOKEN_URL: okUrl(tok.KC_TOKEN_URL) ? tok.KC_TOKEN_URL : DEFAULTS.KC_TOKEN_URL,
+    KR_CLIENT_ID: tok.KC_CLIENT_ID || DEFAULTS.KC_CLIENT_ID,
     KR_USER: tok.KC_USERNAME || "",
     KR_HAS_SECRET: secretDef ? "1" : "0", KR_HAS_PASS: tok.KC_PASSWORD ? "1" : "0"
   });
