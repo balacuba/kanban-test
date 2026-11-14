@@ -70,6 +70,10 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        // Trang chạy ở https://appassets…; Kanban relay (SSE) trong mạng xưởng chạy http (vd. http://172.22.7.84:8765):
+        // cho phép trang gọi http, nếu không EventSource bị chặn và TV quay về tự hỏi mỗi 5 giây.
+        // WebView chỉ mở giao diện Kanban đóng gói trong app (không mở trang ngoài).
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         // Trang dàn trang ở khổ 1600px (meta viewport) rồi thu/phóng đúng bằng chiều rộng màn hình TV.
         // Không dựa vào LoadWithOverviewMode: WebView trên một số TV (TCL Android 11) bỏ qua, trang bị phóng to.
         s.setUseWideViewPort(true);
