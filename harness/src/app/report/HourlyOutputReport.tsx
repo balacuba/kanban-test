@@ -420,15 +420,20 @@ function computeView(d: KanbanData, shiftIndex: number, from: number, to: number
   const rows = hrs.map(h => ({ slot: SLOTS[h], cells: sel.map(j => d.rows[h][j]) }));
   // Dòng Tổng: số SN khác nhau đã qua / bị lỗi tại công đoạn trong các khung giờ đang xem (SN test lại sau sửa chỉ tính 1),
   // khớp số SN và số lượng của WO. Không tải được lịch sử test thì cộng số lần như các khung giờ.
-  const totals = d.snMarks
-    ? sel.map(j => {
-      const id = stageId(d.stages[j].name), pass = new Set<string>(), fail = new Set<string>();
-      (d.snMarks as SnMark[]).forEach(m => {
-        if (m.stage === id && hrs.indexOf(m.slot) >= 0) (m.fail ? fail : pass).add(m.sn);
-      });
-      return [pass.size, fail.size];
-    })
-    : sel.map((_, k) => [sum(rows.map(r => r.cells[k][0])), sum(rows.map(r => r.cells[k][1]))]);
+  // Chỉ dùng số SN khi lịch sử test có đủ bản ghi của công đoạn: số lần qua / lỗi trong lịch sử phải bằng số của báo cáo
+  // (các khung giờ cộng lại). Công đoạn có số qua lấy từ nguồn khác (vd. ICT, FCT do máy test ghi riêng — lịch sử test chỉ
+  // có vài bản ghi) thì giữ số của báo cáo, không đếm SN thiếu.
+  const totals = sel.map((j, k) => {
+    const recPass = sum(rows.map(r => r.cells[k][0])), recFail = sum(rows.map(r => r.cells[k][1]));
+    if (!d.snMarks) return [recPass, recFail];
+    const id = stageId(d.stages[j].name), pass = new Set<string>(), fail = new Set<string>();
+    let nPass = 0, nFail = 0;
+    d.snMarks.forEach(m => {
+      if (m.stage !== id || hrs.indexOf(m.slot) < 0) return;
+      if (m.fail) { nFail++; fail.add(m.sn); } else { nPass++; pass.add(m.sn); }
+    });
+    return [nPass === recPass ? pass.size : recPass, nFail === recFail ? fail.size : recFail];
+  });
   // Đủ công đoạn thì dùng tổng lỗi theo giờ của backend; đang lọc công đoạn thì cộng Fail các công đoạn đang chọn
   const useBackendFail = sel.length === d.stages.length && d.hasFailTable;
   const failByHour = hrs.map((h, k) => (useBackendFail ? d.failByHour[h] : sum(rows[k].cells.map(c => c[1]))));
@@ -1519,8 +1524,14 @@ const KanbanScreen = () => {
     if (!data || !view || !data.snMarks) return null;
     const firsts = data.products.map(p => p.inputGroup).filter(g => g && g !== "—").map(stageId);
     const sns = new Set<string>();
-    data.snMarks.forEach(m => { if (firsts.indexOf(m.stage) >= 0 && view.hrs.indexOf(m.slot) >= 0) sns.add(m.sn); });
-    return sns.size;
+    let nPass = 0;
+    data.snMarks.forEach(m => {
+      if (firsts.indexOf(m.stage) < 0 || view.hrs.indexOf(m.slot) < 0) return;
+      sns.add(m.sn);
+      if (!m.fail) nPass++;
+    });
+    // Lịch sử test không đủ bản ghi công đoạn đầu (số lần qua khác Input của báo cáo): dùng Input như cũ
+    return nPass === sum(view.input) ? sns.size : null;
   }, [data, view]);
   // Số SN lỗi trong ca / khung giờ / công đoạn đang xem (SN khác nhau)
   const defectSns = useMemo(() => {
