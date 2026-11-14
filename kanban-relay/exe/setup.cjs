@@ -16,6 +16,7 @@ const { execFileSync, spawn } = require("node:child_process");
 const INSTALL_DIR = process.env.KANBAN_RELAY_DIR || "C:\\KanbanRelay";
 const EXE_NAME = "KanbanRelay.exe";
 const TASK = "Kanban relay";
+const EXE_VERSION = "__RELAY_VERSION__";   // build.cjs thay bằng RELAY_VERSION của server.mjs
 // Giá trị điền sẵn trong cửa sổ cài đặt (người cài chỉ cần nhập tên đăng nhập + mật khẩu). Server planning, token URL,
 // client ID lấy theo cấu hình của ứng dụng planning; client secret (và giá trị khác) do người build đặt trong
 // exe/defaults.env lúc build (file không đưa lên GitHub) — xem build.cjs.
@@ -297,8 +298,17 @@ async function setup(rl) {
   // Chép exe vào thư mục cài
   const target = path.join(INSTALL_DIR, EXE_NAME);
   if (IS_SEA && path.resolve(SELF).toLowerCase() !== path.resolve(target).toLowerCase()) {
+    // Tắt bản relay đang chạy (exe đang chạy thì Windows không cho chép đè), rồi chép bản này vào thư mục cài
     run("schtasks", ["/end", "/tn", TASK]);
-    try { fs.copyFileSync(SELF, target); } catch (e) { console.log(`   Không chép được exe vào ${target}: ${e.message}`); }
+    run("taskkill", ["/f", "/im", EXE_NAME, "/fi", `PID ne ${process.pid}`]);
+    let copied = false, lastErr = "";
+    for (let i = 0; i < 10 && !copied; i++) {
+      try { fs.copyFileSync(SELF, target); copied = true; } catch (e) {
+        lastErr = e.message;
+        execFileSync("powershell", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 700"], { stdio: "ignore" });
+      }
+    }
+    console.log(copied ? `   Đã cập nhật ${target}` : `   ✖ Không chép được exe vào ${target}: ${lastErr}`);
   }
 
   console.log("\n3) Tự chạy khi bật máy + mở cổng tường lửa");
@@ -341,6 +351,7 @@ async function status(rl) {
   if (!h) console.log("  Trạng thái: CHƯA CHẠY (khởi động lại máy, hoặc chạy KanbanRelay.exe --run để xem lỗi)");
   else {
     console.log(`  Trạng thái: đang chạy, token ${h.ok ? "OK" : "LỖI: " + (h.tokenError || "?")}`);
+    console.log(`  Bản relay đang chạy: ${h.version || "cũ"}   ·   Bản exe này: ${EXE_VERSION}`);
     console.log(`  Kanban đang nghe: ${h.groups.reduce((a, g) => a + g.clients, 0)} (${h.groups.length} nhóm WO)`);
   }
   printAddresses(port);
@@ -408,7 +419,9 @@ function startRelay(toLog) {
       const h = await status(rl);
       // Chưa đăng nhập được, hoặc đang chạy bản exe mới (ngoài thư mục cài): mời cài lại / cập nhật
       const outside = path.resolve(SELF).toLowerCase() !== path.resolve(path.join(INSTALL_DIR, EXE_NAME)).toLowerCase();
-      const why = h && !h.ok ? "Relay chưa đăng nhập được." : !h ? "Relay chưa chạy." : outside ? "Đây là bản exe khác với bản đã cài." : "";
+      const why = h && !h.ok ? "Relay chưa đăng nhập được." : !h ? "Relay chưa chạy."
+        : h.version !== EXE_VERSION ? `Relay đang chạy bản ${h.version || "cũ"}, exe này là bản ${EXE_VERSION}.`
+          : outside ? "Đây là bản exe khác với bản đã cài." : "";
       if (why && IS_SEA && !rl.closed) {
         const a = await ask(rl, `\n  ${why} Mở cửa sổ cài đặt lại${outside ? " (cập nhật bản này vào C:\\KanbanRelay)" : ""}? (C/k)`, "C");
         if (/^c/i.test(a)) { await reSetup(rl); return; }

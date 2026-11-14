@@ -36,7 +36,10 @@ if (fs.existsSync(defFile)) {
 console.log("Giá trị điền sẵn:", Object.keys(defaults).join(", ") || "(mặc định)");   // chỉ in tên, không in giá trị
 if (setup.indexOf("/*__DEFAULTS__*/{}") < 0) throw new Error("setup.cjs thiếu /*__DEFAULTS__*/{}");
 const bundle = path.join(dist, "kanban-relay-bundle.cjs");
-fs.writeFileSync(bundle, setup.replace("/*__SERVER__*/", () => server).replace("/*__DEFAULTS__*/{}", () => JSON.stringify(defaults)));
+const ver = (/const RELAY_VERSION = "([^"]+)"/.exec(server) || [])[1];
+if (!ver) throw new Error("server.mjs thiếu RELAY_VERSION");
+console.log("Relay bản", ver);
+fs.writeFileSync(bundle, setup.replace("__RELAY_VERSION__", ver).replace("/*__SERVER__*/", () => server).replace("/*__DEFAULTS__*/{}", () => JSON.stringify(defaults)));
 
 // 2. Blob SEA
 const cfg = path.join(dist, "sea-config.json");

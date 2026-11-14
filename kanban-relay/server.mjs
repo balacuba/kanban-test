@@ -39,6 +39,7 @@ const APP_ORIGIN = process.env.APP_ORIGIN || PLANNING_URL;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const POLL_MS = Math.max(1000, Number(process.env.POLL_MS) || 3000);
 const HEARTBEAT_MS = 15000;
+const RELAY_VERSION = "1.2";   // tăng khi sửa relay; /health trả về để biết máy relay đang chạy bản nào
 const MAX_WOS = 200;
 
 const log = (...a) => console.log(new Date().toLocaleTimeString("vi-VN"), ...a);
@@ -174,7 +175,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({
-      ok: !!auth.token, tokenError: auth.error, pollMs: POLL_MS,
+      version: RELAY_VERSION, ok: !!auth.token, tokenError: auth.error, pollMs: POLL_MS,
       groups: Array.from(groups.values()).map(g => ({ wos: g.wos.length, clients: g.clients.size, error: g.error || undefined }))
     }));
     return;
