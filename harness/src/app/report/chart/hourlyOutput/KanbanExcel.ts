@@ -120,10 +120,11 @@ function sheetOverview(wb: any, x: KanbanExport) {
   ].forEach(r => boxRow(ws.addRow(r)));
   // Tỷ lệ lỗi = tổng Fail các công đoạn / Input
   // Tỷ lệ lỗi = SN lỗi / SN input (như ô Tỷ lệ lỗi trên Kanban); không có lịch sử test thì tổng Fail / Input
-  const bySn = x.defectSns !== null && x.inputSn !== null && x.inputSn !== undefined;
-  const rn = bySn ? (x.defectSns as number) : x.totalDefects, rd = bySn ? (x.inputSn as number) : x.inputTotal;
+  const hasIn = x.inputSn !== null && x.inputSn !== undefined;
+  const rn = x.defectSns !== null ? x.defectSns : x.totalDefects, rd = hasIn ? (x.inputSn as number) : x.inputTotal;
+  const rateKey = x.defectSns === null ? "kpi.rateSub" : hasIn ? "kpi.rateSubSn" : "kpi.rateSubMix";
   const rateRow = ws.addRow([t("xl.rateShift", st), rd ? rn / rd : "—",
-    t(bySn ? "kpi.rateSubSn" : "kpi.rateSub", { n: rn, i: rd })]);
+    t(rateKey, { n: rn, i: rd })]);
   boxRow(rateRow);
   if (rd) rateRow.getCell(2).numFmt = "0.00%";
   ws.addRow([]);

@@ -63,7 +63,7 @@ interface KanbanData {
 // công đoạn lỗi theo SerialnumberErrorHistory ("" = chưa có), công đoạn SN được trả về sau khi sửa ("" = đang sửa),
 // trạng thái: đang sửa / đã sửa (đã trả về công đoạn) / OK (đã sửa và đã qua lại công đoạn được trả về)
 // Một lần SN qua (fail = false) hoặc lỗi (fail = true) tại công đoạn stage (stageId), trong khung giờ slot
-interface SnMark { stage: string; slot: number; sn: string; fail: boolean; }
+interface SnMark { stage: string; slot: number; sn: string; fail: boolean; wo: string; }
 interface DefectRecord {
   code: string; stage: string; slot: number; sn: string; time: string; errorStage: string; returnStage: string; errorName: string;
   status: RepairStatus;
@@ -131,7 +131,7 @@ async function fetchHistory(wo: string | string[], from: string, to: string, ext
             : { property: "workOrderCode", operator: "=", value: wo },
           { property: timeProp, operator: ">=", value: `${from}T00:00:00` },
           { property: timeProp, operator: "<", value: `${to}T00:00:00` }
-        ].concat(extra ? [extra] : [])
+        ].concat(extra ? (Array.isArray(extra) ? extra : [extra]) : [])
       },
       sort: timeProp,
       limit: HISTORY_PAGE,
@@ -211,7 +211,31 @@ async function testSpan(wo: string, from: string, to: string, auth: any): Promis
   return a && b ? [a, b] : null;
 }
 
-async function fetchDefectRecords(wo: string | string[], days: string[], auth: any): Promise<DefectRecord[]> {
+// Bộ nhớ các lần đọc <entity>/search theo WO + khoảng ngày: lần sau chỉ tải bản ghi mới (id > id lớn nhất đã có);
+// full = true thì tải lại cả khoảng (bắt bản ghi bị xoá / sửa). Mỗi lần tự tải không phải kéo lại toàn bộ.
+const histCache = new Map<string, { rows: any[]; maxId: number }>();
+async function historyCached(wo: string | string[], from: string, to: string, extra: any, auth: any, full: boolean,
+  entity = "ProductSerialNumberTestHistory", timeProp = "testTime") {
+  const wk = (Array.isArray(wo) ? wo.slice().sort() : [wo]).join(",");
+  const key = `${entity}|${wk}|${from}|${to}|${JSON.stringify(extra)}`;
+  const maxOf = (rows: any[], m = 0) => rows.reduce((a, x) => Math.max(a, Number(x.id) || 0), m);
+  const c = histCache.get(key);
+  if (c && !full) {
+    const idCond = { property: "id", operator: ">", value: c.maxId };
+    const more = await fetchHistory(wo, from, to, extra ? [extra, idCond] : idCond, auth, entity, timeProp);
+    if (more.length) { c.rows = c.rows.concat(more); c.maxId = maxOf(more, c.maxId); }
+    return c.rows;
+  }
+  const rows = await fetchHistory(wo, from, to, extra, auth, entity, timeProp);
+  histCache.delete(key);
+  histCache.set(key, { rows, maxId: maxOf(rows) });
+  while (histCache.size > 60) histCache.delete(histCache.keys().next().value as string);
+  return rows;
+}
+// Lỗi đã "OK" (sửa xong và đã qua lại công đoạn) không đổi nữa: nhớ lại để lần sau không tải lịch sử của SN đó
+const repairDone = new Map<string, string>();   // "SN|trạm sửa|thời gian" → công đoạn được trả về
+
+async function fetchDefectRecords(wo: string | string[], days: string[], auth: any, full = true): Promise<DefectRecord[]> {
   const from = days[0], to = addDays(days[days.length - 1], 1);
   // Lỗi: bản ghi có mã lỗi tại trạm sửa. Đã sửa: bản ghi kế tiếp của cùng SN có preStageName = trạm sửa
   // (vd. R_OQC → VMI, repairTime = lúc sửa xong). OK: sau lúc sửa xong, SN qua lại công đoạn đó (bản ghi có
@@ -219,8 +243,8 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
   // Công đoạn lỗi: SerialnumberErrorHistory lưu riêng từng lần ghi lỗi (SN, công đoạn, mã lỗi) và không bị xoá khi
   // bắt repair (lịch sử test của SN có thể bị xoá); bảng này có dữ liệu từ 02/11/2026.
   const [errors, logged] = await Promise.all([
-    fetchHistory(wo, from, to, { property: "errorCode", operator: "notEmpty" }, auth),
-    fetchHistory(wo, addDays(from, -1), addDays(to, 1), null, auth, "SerialnumberErrorHistory", "createdAt")
+    historyCached(wo, from, to, { property: "errorCode", operator: "notEmpty" }, auth, full),
+    historyCached(wo, addDays(from, -1), addDays(to, 1), null, auth, full, "SerialnumberErrorHistory", "createdAt")
       .catch(() => [] as any[])
   ]);
   const errorLog = new Map<string, { time: number; stage: string; name: string; note: string }[]>();   // "SN|mã lỗi" → các lần ghi lỗi
@@ -242,7 +266,9 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
   };
   const snOf = (r: any) => String(r.serialNumber || "").trim();
   const repairErrors = errors.filter(r => /^R_/.test(String(r.stageName || "").trim()));
-  const sns = Array.from(new Set(repairErrors.map(snOf).filter(Boolean)));
+  const doneKey = (r: any) => `${snOf(r)}|${String(r.stageName || "").trim()}|${String(r.testTime || "")}`;
+  // Chỉ tải lịch sử của SN còn lỗi chưa "OK" (lỗi đã OK lấy từ bộ nhớ); full = true thì xét lại tất cả
+  const sns = Array.from(new Set(repairErrors.filter(r => full || !repairDone.has(doneKey(r))).map(snOf).filter(Boolean)));
   const history = await fetchSnHistory(sns, from, auth).catch(() => [] as any[]);
   const bySn = new Map<string, any[]>();   // SN → lịch sử theo thời gian
   history.forEach(r => {
@@ -269,7 +295,10 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
     const hour = Number(time.slice(11, 13));
     const stage = stageName.replace(/^R_/, "");
     const sn = String(r.serialNumber || r.qaNumber || "").trim();
-    const { returnStage, status } = repairOf(snOf(r), stageName, time);
+    const dk = doneKey(r);
+    const { returnStage, status } = !full && repairDone.has(dk)
+      ? { returnStage: repairDone.get(dk) as string, status: "ok" as RepairStatus } : repairOf(snOf(r), stageName, time);
+    if (status === "ok") { if (repairDone.size > 20000) repairDone.clear(); repairDone.set(dk, returnStage); }
     String(r.errorCode || "").split(/[,;]/).map(s => s.trim()).filter(Boolean)
       .forEach(code => {
         const log = loggedError(String(r.serialNumber || "").trim(), code, time);
@@ -283,19 +312,56 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
 // Lịch sử test của WO trong các ngày đang xem → từng lần SN qua / lỗi theo công đoạn. Cùng cách đếm với get-daily-report:
 // Pass của công đoạn X = bản ghi preStageName = X và stageName khác R_X; Fail của X = bản ghi stageName = R_X.
 // get-daily-report đếm số bản ghi, nên SN lỗi → sửa → qua lại bị đếm 2 lần; dòng Tổng dùng số SN khác nhau.
-async function fetchSnMarks(wo: string | string[], days: string[], auth: any): Promise<SnMark[]> {
-  // Server hay trả 502 khi đang bận: gửi lại để dòng Tổng không quay về đếm số lần
-  const rows = await withRetry(() => fetchHistory(wo, days[0], addDays(days[days.length - 1], 1), null, auth));
-  const out: SnMark[] = [];
+// Bản ghi lịch sử test → từng lần SN qua / lỗi theo công đoạn; maxId = id lớn nhất (để lần sau chỉ tải bản ghi mới)
+function toMarks(rows: any[]) {
+  const marks: SnMark[] = [];
+  let maxId = 0;
   rows.forEach(r => {
+    maxId = Math.max(maxId, Number(r.id) || 0);
     const st = String(r.stageName || "").trim(), pre = String(r.preStageName || "").trim();
     const sn = String(r.serialNumber || "").trim();
     if (!sn) return;
     const slot = SLOT_HOUR.indexOf(Number(String(r.testTime || "").slice(11, 13)));
-    if (/^R_/i.test(st)) out.push({ stage: stageId(st.slice(2)), slot, sn, fail: true });
-    else if (pre && !/^R_/i.test(pre)) out.push({ stage: stageId(pre), slot, sn, fail: false });
+    const wo = String(r.workOrderCode || "").trim();
+    if (/^R_/i.test(st)) marks.push({ stage: stageId(st.slice(2)), slot, sn, fail: true, wo });
+    else if (pre && !/^R_/i.test(pre)) marks.push({ stage: stageId(pre), slot, sn, fail: false, wo });
   });
-  return out;
+  return { marks, maxId };
+}
+// Bộ nhớ theo "các WO|ngày": ngày cũ giữ nguyên; ngày gần (từ hôm qua) mỗi lần tải chỉ lấy thêm bản ghi mới (id > maxId),
+// full = true (lần dò ~1 phút) thì tải lại cả ngày để bắt bản ghi bị xoá / sửa. Tránh mỗi lần tự tải kéo lại toàn bộ
+// lịch sử test (model nhiều WO × 7 ngày từng lên tới ~30 MB mỗi lần).
+const snCache = new Map<string, { marks: SnMark[]; maxId: number }>();
+const SN_CACHE_MAX = 400;
+async function fetchSnMarks(wo: string | string[], days: string[], auth: any, recent: string, full: boolean): Promise<SnMark[]> {
+  const list = Array.isArray(wo) ? wo : [wo];
+  const wk = list.slice().sort().join(",");
+  const one = async (d: string) => {
+    const key = `${wk}|${d}`;
+    const c = snCache.get(key);
+    const live = d >= recent;
+    if (c && !(live && full)) {
+      if (live) {
+        // Server hay trả 502 khi đang bận: gửi lại để dòng Tổng không quay về đếm số lần
+        const more = await withRetry(() => fetchHistory(list, d, addDays(d, 1), { property: "id", operator: ">", value: c.maxId }, auth));
+        if (more.length) {
+          const m = toMarks(more);
+          c.marks = c.marks.concat(m.marks);
+          c.maxId = Math.max(c.maxId, m.maxId);
+        }
+      }
+      return c.marks;
+    }
+    const m = toMarks(await withRetry(() => fetchHistory(list, d, addDays(d, 1), null, auth)));
+    snCache.delete(key);
+    snCache.set(key, m);
+    while (snCache.size > SN_CACHE_MAX) snCache.delete(snCache.keys().next().value as string);
+    return m.marks;
+  };
+  // Tối đa 3 ngày cùng lúc (server chịu tải kém)
+  const out: SnMark[][] = [];
+  for (let i = 0; i < days.length; i += 3) out.push(...await Promise.all(days.slice(i, i + 3).map(one)));
+  return ([] as SnMark[]).concat(...out);
 }
 
 const zeros = (n: number) => {
@@ -822,8 +888,9 @@ function KpiCards({ totalDefects, input, inputSn, defectSns, topDefect, topStage
   const { t } = useI18n();
   const donePct = plan ? done / plan : 0;
   // Tỷ lệ lỗi = Tổng lỗi (số SN lỗi) / số SN input; không có lịch sử test thì tổng Fail / Input như cũ
-  const bySn = defectSns !== null && inputSn !== null;
-  const rateN = bySn ? (defectSns as number) : totalDefects, rateD = bySn ? (inputSn as number) : input;
+  // Tử số luôn bằng số ở ô Tổng lỗi (SN lỗi); mẫu số = SN input, không đếm được SN input thì dùng Input của báo cáo
+  const rateN = defectSns !== null ? defectSns : totalDefects, rateD = inputSn !== null ? inputSn : input;
+  const rateKey = defectSns === null ? "kpi.rateSub" : inputSn !== null ? "kpi.rateSubSn" : "kpi.rateSubMix";
   return (
     <section className="kpis">
       <div className="card kpi hero">
@@ -832,7 +899,7 @@ function KpiCards({ totalDefects, input, inputSn, defectSns, topDefect, topStage
         <span className="hero-divider" />
         {/* Tỷ lệ lỗi = Tổng lỗi (SN lỗi) / SN input, cùng ca / khung giờ / công đoạn đang xem */}
         <Stat label={t("kpi.rate")} value={rateD ? pct(rateN, rateD, 2) : "—"}
-          sub={t(bySn ? "kpi.rateSubSn" : "kpi.rateSub", { n: fmt(rateN), i: fmt(rateD) })} />
+          sub={t(rateKey, { n: fmt(rateN), i: fmt(rateD) })} />
       </div>
 
       <div className="card kpi">
@@ -1297,8 +1364,8 @@ const KanbanScreen = () => {
           const [c, reports, records, marks] = await Promise.all([
             commonOf(wo, 0), pool(dl, d => fetchReport(wo, d)),
             // Lỗi theo công đoạn / giờ: tải lỗi thì vẫn hiện Kanban, Pareto dùng errorList cả ngày
-            fetchDefectRecords(wo, days, auth).catch(() => null),
-            fetchSnMarks(wo, days, auth).catch(() => null)
+            fetchDefectRecords(wo, days, auth, scanTick).catch(() => null),
+            fetchSnMarks(wo, days, auth, recent, scanTick).catch(() => null)
           ]);
           next = buildKanbanData(wo, c, reports, records, marks);
         } else {
@@ -1349,9 +1416,9 @@ const KanbanScreen = () => {
           const pairs = ([] as [string, string][]).concat(...need.map(wo => daysFor(wo).map(d => [wo, d] as [string, string])));
           const [fresh, records, commonList, marks] = await Promise.all([
             pool(pairs, ([wo, d]) => fetchReport(wo, d).catch(() => null)),
-            live.length ? fetchDefectRecords(live, days, auth).catch(() => null) : Promise.resolve([] as DefectRecord[]),
+            live.length ? fetchDefectRecords(live, days, auth, scanTick).catch(() => null) : Promise.resolve([] as DefectRecord[]),
             commonsP,
-            live.length ? fetchSnMarks(live, days, auth).catch(() => null) : Promise.resolve([] as SnMark[])
+            live.length ? fetchSnMarks(live, days, auth, recent, scanTick).catch(() => null) : Promise.resolve([] as SnMark[])
           ]);
           need.forEach(wo => got.set(wo, []));
           pairs.forEach(([wo], i) => { if (fresh[i]) (got.get(wo) as any[]).push(fresh[i]); });
@@ -1522,11 +1589,14 @@ const KanbanScreen = () => {
   // sau sửa chỉ tính 1. Không tải được lịch sử test thì null (dùng Input = Pass công đoạn đầu như cũ).
   const inputSn = useMemo(() => {
     if (!data || !view || !data.snMarks) return null;
-    const firsts = data.products.map(p => p.inputGroup).filter(g => g && g !== "—").map(stageId);
+    // Công đoạn đầu của từng WO (các WO có thể bắt đầu ở công đoạn khác nhau: SN của WO bắt đầu ở AOI-TOP đi tiếp qua
+    // AOI-BOT không được tính là input lần nữa)
+    const first = new Map<string, string>();
+    data.products.forEach(p => { if (p.inputGroup && p.inputGroup !== "—") first.set(p.wo, stageId(p.inputGroup)); });
     const sns = new Set<string>();
     let nPass = 0;
     data.snMarks.forEach(m => {
-      if (firsts.indexOf(m.stage) < 0 || view.hrs.indexOf(m.slot) < 0) return;
+      if (first.get(m.wo) !== m.stage || view.hrs.indexOf(m.slot) < 0) return;
       sns.add(m.sn);
       if (!m.fail) nPass++;
     });
