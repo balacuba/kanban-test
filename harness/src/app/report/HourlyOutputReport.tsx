@@ -1225,11 +1225,13 @@ const KanbanScreen = () => {
     const auth = { headers: { Authorization: `Bearer ${authToken}` } };
 
     let busy = false;
+    // Có số liệu mới (relay báo / đến lượt tự tải) trong lúc đang tải dở: tải lại ngay khi xong, không bỏ qua
+    let again = false;
     let active: string[] | null = null;   // nhiều WO: các WO có số liệu trong các ngày đang xem (lần dò gần nhất)
     let tick = 0;
     const spans = new Map<string, [string, string] | null>();   // WO → ngày test đầu / cuối trong khoảng ngày đang xem
     const load = async (silent: boolean) => {
-      if (busy) return;
+      if (busy) { if (silent) again = true; return; }
       busy = true;
       if (!silent) setLoading(true);
       try {
@@ -1377,6 +1379,7 @@ const KanbanScreen = () => {
       } finally {
         busy = false;
         if (alive && !silent) setLoading(false);
+        if (again && alive) { again = false; load(true); }
       }
     };
 
