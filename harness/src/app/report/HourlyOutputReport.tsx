@@ -1787,7 +1787,7 @@ const KanbanScreen = () => {
 
   return (
     // data-kanban-version: kiểm tra bản đang chạy trên server (F12 → Elements, hoặc Console: document.querySelector(".wo-dash").dataset.kanbanVersion)
-    <div className="wo-dash" ref={rootRef} data-kanban-version="5.0 · 2026-11-14">
+    <div className="wo-dash" ref={rootRef} data-kanban-version="5.1 · 2026-11-14">
       <FilterBar
         open={filtersOpen} onOpen={setFiltersOpen}
         products={products} product={product} onProduct={onProduct}
