@@ -35,6 +35,7 @@ export interface KanbanExport {
   // Tỷ lệ đạt theo ngày / tháng / năm (tự lấy, không theo bộ lọc); null = chưa tải xong
   periods: Record<"day" | "month" | "year", { keys: string[]; labels: string[]; input: number[]; fail: number[] } | null>;
   defectSns: number | null;     // số SN lỗi (null: không tải được lịch sử test)
+  inputSn?: number | null;      // số SN input (null: không tải được lịch sử test)
   topDefect?: { name: string; count: number };
   topStage: { name: string; fail: number } | null;
   planOutput: number;
@@ -118,10 +119,13 @@ function sheetOverview(wb: any, x: KanbanExport) {
       : t("xl.noFail")]
   ].forEach(r => boxRow(ws.addRow(r)));
   // Tỷ lệ lỗi = tổng Fail các công đoạn / Input
-  const rateRow = ws.addRow([t("xl.rateShift", st), x.inputTotal ? x.totalDefects / x.inputTotal : "—",
-    t("kpi.rateSub", { n: x.totalDefects, i: x.inputTotal })]);
+  // Tỷ lệ lỗi = SN lỗi / SN input (như ô Tỷ lệ lỗi trên Kanban); không có lịch sử test thì tổng Fail / Input
+  const bySn = x.defectSns !== null && x.inputSn !== null && x.inputSn !== undefined;
+  const rn = bySn ? (x.defectSns as number) : x.totalDefects, rd = bySn ? (x.inputSn as number) : x.inputTotal;
+  const rateRow = ws.addRow([t("xl.rateShift", st), rd ? rn / rd : "—",
+    t(bySn ? "kpi.rateSubSn" : "kpi.rateSub", { n: rn, i: rd })]);
   boxRow(rateRow);
-  if (x.inputTotal) rateRow.getCell(2).numFmt = "0.00%";
+  if (rd) rateRow.getCell(2).numFmt = "0.00%";
   ws.addRow([]);
 
   addSection(ws, t("xl.products"));

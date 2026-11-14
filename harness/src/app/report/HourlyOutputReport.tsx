@@ -803,9 +803,10 @@ const Stat = ({ label, value, sub }: { label: string; value: string; sub?: strin
   </div>
 );
 
-function KpiCards({ totalDefects, input, defectSns, topDefect, topStage, woCode, plan, done }: {
+function KpiCards({ totalDefects, input, inputSn, defectSns, topDefect, topStage, woCode, plan, done }: {
   totalDefects: number;
   input: number;              // Input (Pass công đoạn đầu) trong ca / khung giờ đang xem
+  inputSn: number | null;     // số SN input (null = không tải được lịch sử test)
   defectSns: number | null;   // số SN lỗi (không tải được lịch sử test thì null → hiện tổng Fail)
   topDefect?: { name: string; count: number; share: number };
   topStage: { name: string; fail: number } | null;
@@ -815,15 +816,18 @@ function KpiCards({ totalDefects, input, defectSns, topDefect, topStage, woCode,
 }) {
   const { t } = useI18n();
   const donePct = plan ? done / plan : 0;
+  // Tỷ lệ lỗi = Tổng lỗi (số SN lỗi) / số SN input; không có lịch sử test thì tổng Fail / Input như cũ
+  const bySn = defectSns !== null && inputSn !== null;
+  const rateN = bySn ? (defectSns as number) : totalDefects, rateD = bySn ? (inputSn as number) : input;
   return (
     <section className="kpis">
       <div className="card kpi hero">
         {/* Tổng lỗi = số SN lỗi (1 SN lỗi nhiều lần / nhiều công đoạn chỉ đếm 1); không tải được lịch sử test thì = tổng Fail */}
         <Stat label={t("kpi.total")} value={fmt(defectSns === null ? totalDefects : defectSns)} />
         <span className="hero-divider" />
-        {/* Tỷ lệ lỗi = tổng số lỗi các công đoạn (tổng Fail) / Input (Pass công đoạn đầu), cùng ca / khung giờ / công đoạn đang xem */}
-        <Stat label={t("kpi.rate")} value={input ? pct(totalDefects, input, 2) : "—"}
-          sub={t("kpi.rateSub", { n: fmt(totalDefects), i: fmt(input) })} />
+        {/* Tỷ lệ lỗi = Tổng lỗi (SN lỗi) / SN input, cùng ca / khung giờ / công đoạn đang xem */}
+        <Stat label={t("kpi.rate")} value={rateD ? pct(rateN, rateD, 2) : "—"}
+          sub={t(bySn ? "kpi.rateSubSn" : "kpi.rateSub", { n: fmt(rateN), i: fmt(rateD) })} />
       </div>
 
       <div className="card kpi">
@@ -1506,6 +1510,15 @@ const KanbanScreen = () => {
 
   // Ô Tổng lỗi theo ca (và khung giờ, công đoạn) đang xem: tổng Fail của ca (= biểu đồ Defect Detail, = cột Fail của bảng)
   const shiftDefects = view ? view.totalFail : 0;
+  // SN input: số SN khác nhau vào công đoạn đầu của WO (qua hoặc lỗi tại đó) trong ca / khung giờ đang xem — SN test lại
+  // sau sửa chỉ tính 1. Không tải được lịch sử test thì null (dùng Input = Pass công đoạn đầu như cũ).
+  const inputSn = useMemo(() => {
+    if (!data || !view || !data.snMarks) return null;
+    const firsts = data.products.map(p => p.inputGroup).filter(g => g && g !== "—").map(stageId);
+    const sns = new Set<string>();
+    data.snMarks.forEach(m => { if (firsts.indexOf(m.stage) >= 0 && view.hrs.indexOf(m.slot) >= 0) sns.add(m.sn); });
+    return sns.size;
+  }, [data, view]);
   // Số SN lỗi trong ca / khung giờ / công đoạn đang xem (SN khác nhau)
   const defectSns = useMemo(() => {
     if (!data || !view || !data.defectRecords) return null;
@@ -1668,7 +1681,7 @@ const KanbanScreen = () => {
           ? data.products.map(p => ({ name: `${p.wo} – ${p.name || p.code}`, plan: p.plan, done: p.done }))
           : [{ name: data.productName || data.productCode, plan: data.plan, done: data.done }],
         pmPlan, allStages: data.stages.length, stageNames, view, outside, pareto: paretoView,
-        totalDefects: shiftDefects, inputTotal: sum(view.input), defectSns, periods, topDefect: paretoView.items[0], paretoScope, topStage,
+        totalDefects: shiftDefects, inputTotal: sum(view.input), inputSn, defectSns, periods, topDefect: paretoView.items[0], paretoScope, topStage,
         planOutput, shiftOutput, charts
       });
     } catch (e) {
@@ -1711,7 +1724,7 @@ const KanbanScreen = () => {
         ) : (
           <>
             <KpiCards
-              totalDefects={shiftDefects} input={sum(view.input)} defectSns={defectSns}
+              totalDefects={shiftDefects} input={sum(view.input)} inputSn={inputSn} defectSns={defectSns}
               topDefect={paretoView.items[0]} topStage={topStage}
               woCode={data.woCode} plan={data.plan} done={data.done}
             />
