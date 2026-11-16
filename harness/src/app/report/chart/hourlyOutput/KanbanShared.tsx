@@ -583,6 +583,8 @@ export const HourChart = ({ values, labels, color, type, night, chartKey }: Hour
 // (trước khi mở Kanban) hoặc localStorage "kanban-relay" (F12 → Console: localStorage.setItem("kanban-relay", "http://…")).
 export const KANBAN_RELAY_URL = "http://172.22.7.84:8765";
 export const RELAY_SAFETY_MS = 60000;   // đang nối relay: vẫn tự tải lại mỗi phút phòng khi lỡ sự kiện
+export const RELAY_RETRY_MS = 300000;   // trình duyệt chặn / không nối được relay: 5 phút sau thử lại
+export const SELF_SAFETY_MS = 30000;    // không có relay, số liệu lịch sử test không đổi: vẫn tải lại toàn bộ mỗi 30 giây
 export function relayUrl(): string {
   let v: any = (window as any).KANBAN_RELAY_URL;
   if (!v) { try { v = localStorage.getItem("kanban-relay"); } catch { /* bỏ qua */ } }

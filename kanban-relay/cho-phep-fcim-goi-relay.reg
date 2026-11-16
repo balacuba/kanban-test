@@ -1,0 +1,23 @@
+Windows Registry Editor Version 5.00
+
+; Cho phep trang fcim (http://fcim.mkvision.com:3000 va https://fcim.mkvision.com) goi Kanban relay
+; trong mang noi bo (172.22.7.84:8765) ma khong bi Chrome/Edge chan hay hoi quyen "Truy cap mang cuc bo".
+; Khong co chinh sach nay: Kanban quay ve tu hoi server moi 5 giay.
+; Cach dung: chay file nay bang quyen Administrator tren tung may xuong, dong het Chrome/Edge roi mo lai.
+; Kiem tra: mo chrome://policy (hoac edge://policy) thay cac muc ben duoi o trang thai OK.
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\InsecurePrivateNetworkRequestsAllowedForUrls]
+"1"="http://fcim.mkvision.com:3000"
+"2"="https://fcim.mkvision.com"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\LocalNetworkAccessAllowedForUrls]
+"1"="http://fcim.mkvision.com:3000"
+"2"="https://fcim.mkvision.com"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\InsecurePrivateNetworkRequestsAllowedForUrls]
+"1"="http://fcim.mkvision.com:3000"
+"2"="https://fcim.mkvision.com"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\LocalNetworkAccessAllowedForUrls]
+"1"="http://fcim.mkvision.com:3000"
+"2"="https://fcim.mkvision.com"
