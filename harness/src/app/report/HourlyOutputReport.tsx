@@ -16,7 +16,7 @@ import { usePeriodYield, YieldSource } from "./chart/hourlyOutput/yieldPeriods";
 import { exportKanbanExcel } from "./chart/hourlyOutput/KanbanExcel";
 import {
   ALL_DAY, ALL_SHIFT, HOURS, I18nProvider, LANGS, MAX_DAYS, REFRESH_MS, SHIFTS, shiftOf, SLOTS, SLOT_HOUR,
-  addDays, captureCharts, ChartPopup, kanbanShown, relayUrl, RELAY_SAFETY_MS, RELAY_RETRY_MS, SELF_SAFETY_MS, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
+  addDays, captureCharts, ChartPopup, kanbanShown, relayUrl, RELAY_SAFETY_MS, fmt, listDays, num, pct, productionDate, rangeLabel, shiftRange, shiftSlots, slotOf, sum,
   useClickOutside, useCurrentShift, useFitToScreen, useI18n, ZoomButton
 } from "./chart/hourlyOutput/KanbanShared";
 
@@ -1467,69 +1467,24 @@ const KanbanScreen = () => {
     // tự quay về tự hỏi như cũ (EventSource tự nối lại); đang nối relay vẫn tải lại mỗi RELAY_SAFETY_MS cho chắc.
     let sse = false, sseOpened = false;
     const relay = relayUrl();
-    let es: EventSource | null = null, esRetry: any = 0;
-    // Trình duyệt chặn trang gọi relay (vd. trang http công cộng → IP nội bộ: "not a secure context … address space
-    // local") thì lần nối đầu đã lỗi: đóng lại, 5 phút sau mới thử lại (không để EventSource báo lỗi mỗi 5 giây)
-    const openRelay = () => {
-      if (!alive || !relay || typeof EventSource === "undefined") return;
-      const src = new EventSource(`${relay}/events?wos=${encodeURIComponent(query.wos.join(","))}`);
-      es = src;
-      let opened = false;
-      // Relay chưa đăng nhập được server planning (ok = false): Kanban tự kiểm tra như khi không có relay
+    const es: EventSource | null = relay && typeof EventSource !== "undefined"
+      ? new EventSource(`${relay}/events?wos=${encodeURIComponent(query.wos.join(","))}`) : null;
+    if (es) {
+      // Relay chưa đăng nhập được server planning (ok = false): vẫn tự hỏi mỗi REFRESH_MS như cũ
       const relayOk = (e: Event) => { try { return !!JSON.parse((e as MessageEvent).data).ok; } catch { return false; } };
-      src.addEventListener("state", e => { sse = relayOk(e); });
-      src.addEventListener("ready", e => {
-        opened = true;
+      es.addEventListener("state", e => { sse = relayOk(e); });
+      es.addEventListener("ready", e => {
         sse = relayOk(e);
         if (sseOpened) reloadNow();   // nối lại sau khi mất kết nối: có thể đã lỡ sự kiện
         sseOpened = true;
       });
-      src.addEventListener("update", () => { if (kanbanShown(rootRef.current)) reloadNow(); else missed = true; });
-      src.onerror = () => {
-        sse = false;
-        if (!opened) { src.close(); es = null; esRetry = setTimeout(openRelay, RELAY_RETRY_MS); }
-      };
-    };
-    openRelay();
-
-    // Không có relay: thay vì tải lại toàn bộ mỗi REFRESH_MS, chỉ hỏi "dấu hiệu" số liệu (id bản ghi test mới nhất + số
-    // bản ghi của các WO, 2 yêu cầu rất nhỏ — cùng cách relay làm); đổi thì mới tải lại. Số liệu không nằm trong lịch sử
-    // test (vd. Pass ICT/FCT lấy từ máy test) vẫn được tải lại toàn bộ mỗi SELF_SAFETY_MS.
-    let sig = "", checking = false;
-    const woCond = query.wos.length === 1
-      ? { property: "workOrderCode", operator: "=", value: query.wos[0] }
-      : { property: "workOrderCode", operator: "in", value: query.wos };
-    const signature = async () => {
-      const [top, count] = await Promise.all([
-        axios.post(`${PLANNING_API_URL}/rest/entities/ProductSerialNumberTestHistory/search`,
-          { filter: { conditions: [woCond] }, sort: "-id", limit: 1 }, auth),
-        axios.post(`${PLANNING_API_URL}/rest/entities/ProductSerialNumberTestHistory/search/count`,
-          { filter: { conditions: [woCond] } }, auth)
-      ]);
-      const last = asArray(top.data)[0];
-      return `${last ? last.id : 0}:${Number(count.data) || 0}`;
-    };
-    const selfCheck = async () => {
-      if (checking || busy) return;
-      checking = true;
-      try {
-        const s = await signature();
-        if (!alive) return;
-        const changed = !!sig && s !== sig;
-        sig = s;
-        if (changed && !sse) reloadNow();
-      } catch {
-        if (alive && !sse) reloadNow();   // không hỏi được dấu hiệu: tải lại như cũ
-      } finally {
-        checking = false;
-      }
-    };
-    if (!long) selfCheck();
+      es.addEventListener("update", () => { if (kanbanShown(rootRef.current)) reloadNow(); else missed = true; });
+      es.onerror = () => { sse = false; };
+    }
     const id = setInterval(() => {
       if (!kanbanShown(rootRef.current)) { missed = true; return; }
-      if (long) { reloadNow(); return; }
-      if (Date.now() - lastLoad >= (sse ? RELAY_SAFETY_MS : SELF_SAFETY_MS)) { reloadNow(); return; }
-      if (!sse) selfCheck();
+      if (sse && Date.now() - lastLoad < RELAY_SAFETY_MS) return;
+      reloadNow();
     }, long ? 60000 : REFRESH_MS);
     const onShow = () => { if (!document.hidden && kanbanShown(rootRef.current)) reloadNow(); };
     const RO: any = (window as any).ResizeObserver;
@@ -1538,7 +1493,7 @@ const KanbanScreen = () => {
     if (ro) ro.observe(rootRef.current);
     document.addEventListener("visibilitychange", onShow);
     return () => {
-      alive = false; clearInterval(id); clearTimeout(esRetry); if (ro) ro.disconnect(); if (es) (es as EventSource).close();
+      alive = false; clearInterval(id); if (ro) ro.disconnect(); if (es) es.close();
       document.removeEventListener("visibilitychange", onShow);
     };
   }, [query, reloadKey, authToken]);
@@ -1832,7 +1787,7 @@ const KanbanScreen = () => {
 
   return (
     // data-kanban-version: kiểm tra bản đang chạy trên server (F12 → Elements, hoặc Console: document.querySelector(".wo-dash").dataset.kanbanVersion)
-    <div className="wo-dash" ref={rootRef} data-kanban-version="5.2 · 2026-11-16">
+    <div className="wo-dash" ref={rootRef} data-kanban-version="5.1 · 2026-11-14">
       <FilterBar
         open={filtersOpen} onOpen={setFiltersOpen}
         products={products} product={product} onProduct={onProduct}
