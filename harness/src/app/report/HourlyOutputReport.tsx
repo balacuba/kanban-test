@@ -480,15 +480,17 @@ function mergeKanban(woCode: string, parts: KanbanData[], defectRecords: DefectR
   };
 }
 
+// Số SN khác nhau (sns) từ nHist bản ghi lịch sử test, so với rec lần của báo cáo: lịch sử thiếu bản ghi thì cộng phần thiếu
+const snCount = (sns: number, nHist: number, rec: number) => (nHist >= rec ? sns : sns + rec - nHist);
+
 // Số liệu cho ca đang xem sau khi lọc khung giờ + công đoạn
 function computeView(d: KanbanData, shiftIndex: number, from: number, to: number, sel: number[]) {
   const hrs = shiftSlots(shiftIndex).filter(i => i >= from && i <= to);
   const rows = hrs.map(h => ({ slot: SLOTS[h], cells: sel.map(j => d.rows[h][j]) }));
   // Dòng Tổng: số SN khác nhau đã qua / bị lỗi tại công đoạn trong các khung giờ đang xem (SN test lại sau sửa chỉ tính 1),
   // khớp số SN và số lượng của WO. Không tải được lịch sử test thì cộng số lần như các khung giờ.
-  // Chỉ dùng số SN khi lịch sử test có đủ bản ghi của công đoạn: số lần qua / lỗi trong lịch sử phải bằng số của báo cáo
-  // (các khung giờ cộng lại). Công đoạn có số qua lấy từ nguồn khác (vd. ICT, FCT do máy test ghi riêng — lịch sử test chỉ
-  // có vài bản ghi) thì giữ số của báo cáo, không đếm SN thiếu.
+  // Lịch sử test có ít bản ghi hơn báo cáo (công đoạn có số lấy từ nguồn khác, vd. máy test ghi riêng) thì phần thiếu
+  // cộng thêm theo số lần của báo cáo; lịch sử đủ hoặc nhiều hơn (báo cáo lệch vài bản ghi trùng / bị xoá) thì dùng số SN.
   const totals = sel.map((j, k) => {
     const recPass = sum(rows.map(r => r.cells[k][0])), recFail = sum(rows.map(r => r.cells[k][1]));
     if (!d.snMarks) return [recPass, recFail];
@@ -498,7 +500,7 @@ function computeView(d: KanbanData, shiftIndex: number, from: number, to: number
       if (m.stage !== id || hrs.indexOf(m.slot) < 0) return;
       if (m.fail) { nFail++; fail.add(m.sn); } else { nPass++; pass.add(m.sn); }
     });
-    return [nPass === recPass ? pass.size : recPass, nFail === recFail ? fail.size : recFail];
+    return [snCount(pass.size, nPass, recPass), snCount(fail.size, nFail, recFail)];
   });
   // Đủ công đoạn thì dùng tổng lỗi theo giờ của backend; đang lọc công đoạn thì cộng Fail các công đoạn đang chọn
   const useBackendFail = sel.length === d.stages.length && d.hasFailTable;
@@ -1600,8 +1602,8 @@ const KanbanScreen = () => {
       sns.add(m.sn);
       if (!m.fail) nPass++;
     });
-    // Lịch sử test không đủ bản ghi công đoạn đầu (số lần qua khác Input của báo cáo): dùng Input như cũ
-    return nPass === sum(view.input) ? sns.size : null;
+    // Lịch sử test thiếu bản ghi công đoạn đầu: cộng phần thiếu theo Input của báo cáo
+    return snCount(sns.size, nPass, sum(view.input));
   }, [data, view]);
   // Số SN lỗi trong ca / khung giờ / công đoạn đang xem (SN khác nhau)
   const defectSns = useMemo(() => {
@@ -1787,7 +1789,7 @@ const KanbanScreen = () => {
 
   return (
     // data-kanban-version: kiểm tra bản đang chạy trên server (F12 → Elements, hoặc Console: document.querySelector(".wo-dash").dataset.kanbanVersion)
-    <div className="wo-dash" ref={rootRef} data-kanban-version="5.1 · 2026-11-14">
+    <div className="wo-dash" ref={rootRef} data-kanban-version="5.2 · 2026-11-20">
       <FilterBar
         open={filtersOpen} onOpen={setFiltersOpen}
         products={products} product={product} onProduct={onProduct}
