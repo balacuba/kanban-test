@@ -242,18 +242,29 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
   // preStageName = công đoạn được trả về, testResult = 1). Lịch sử sau lỗi lấy theo danh sách SN lỗi.
   // Công đoạn lỗi: SerialnumberErrorHistory lưu riêng từng lần ghi lỗi (SN, công đoạn, mã lỗi) và không bị xoá khi
   // bắt repair (lịch sử test của SN có thể bị xoá); bảng này có dữ liệu từ 02/11/2026.
+  // Lấy mọi bản ghi tại trạm sửa R_xxx, kể cả bản ghi không có mã lỗi (vd. OQC trả cả lô: mọi SN của lô sang R_OQC,
+  // chỉ vài SN có lỗi ghi ở SerialnumberErrorHistory) — để số SN lỗi khớp cột Fail
   const [errors, logged] = await Promise.all([
-    historyCached(wo, from, to, { property: "errorCode", operator: "notEmpty" }, auth, full),
+    historyCached(wo, from, to, { property: "stageName", operator: "startsWith", value: "R_" }, auth, full),
     historyCached(wo, addDays(from, -1), addDays(to, 1), null, auth, full, "SerialnumberErrorHistory", "createdAt")
       .catch(() => [] as any[])
   ]);
   const errorLog = new Map<string, { time: number; stage: string; name: string; note: string }[]>();   // "SN|mã lỗi" → các lần ghi lỗi
+  const errorLogSn = new Map<string, { time: number; code: string }[]>();   // SN → các lần ghi lỗi (mọi mã)
   logged.forEach(r => {
-    const key = `${String(r.serialNumber || "").trim()}|${String(r.errorCode || "").trim()}`;
+    const sn = String(r.serialNumber || "").trim(), code = String(r.errorCode || "").trim();
+    const key = `${sn}|${code}`;
+    const time = Date.parse(String(r.createdAt || ""));
     const list = errorLog.get(key) || [];
-    list.push({ time: Date.parse(String(r.createdAt || "")), stage: String(r.stageName || "").trim(), name: String(r.errorName || "").trim(), note: String(r.note || "").trim() });
+    list.push({ time, stage: String(r.stageName || "").trim(), name: String(r.errorName || "").trim(), note: String(r.note || "").trim() });
     errorLog.set(key, list);
+    if (code) errorLogSn.set(sn, (errorLogSn.get(sn) || []).concat({ time, code }));
   });
+  // Bản ghi trạm sửa không có mã lỗi: lấy mã lỗi đã ghi cho SN đó quanh thời điểm ấy (lệch ≤ 10 phút); không có thì để trống
+  const loggedCodes = (sn: string, time: string) => {
+    const t = Date.parse(time);
+    return Array.from(new Set((errorLogSn.get(sn) || []).filter(e => Math.abs(e.time - t) <= 10 * 60 * 1000).map(e => e.code)));
+  };
   // Lần ghi lỗi gần thời điểm bản ghi trạm sửa nhất (cùng lúc hoặc lệch vài phút)
   const loggedError = (sn: string, code: string, time: string) => {
     const t = Date.parse(time);
@@ -299,12 +310,15 @@ async function fetchDefectRecords(wo: string | string[], days: string[], auth: a
     const { returnStage, status } = !full && repairDone.has(dk)
       ? { returnStage: repairDone.get(dk) as string, status: "ok" as RepairStatus } : repairOf(snOf(r), stageName, time);
     if (status === "ok") { if (repairDone.size > 20000) repairDone.clear(); repairDone.set(dk, returnStage); }
-    String(r.errorCode || "").split(/[,;]/).map(s => s.trim()).filter(Boolean)
-      .forEach(code => {
-        const log = loggedError(String(r.serialNumber || "").trim(), code, time);
-        out.push({ code, stage, slot: SLOT_HOUR.indexOf(hour), sn, time, returnStage, status, errorStage: log.stage, errorName: log.name,
-          position: log.note || String(r.note || "").trim() });
-      });
+    let codes = String(r.errorCode || "").split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    // Không có mã lỗi: mã từ SerialnumberErrorHistory, không có nữa thì 1 dòng mã rỗng ("Không ghi mã lỗi")
+    if (!codes.length) codes = loggedCodes(snOf(r), time);
+    if (!codes.length) codes = [""];
+    codes.forEach(code => {
+      const log = loggedError(String(r.serialNumber || "").trim(), code, time);
+      out.push({ code, stage, slot: SLOT_HOUR.indexOf(hour), sn, time, returnStage, status, errorStage: log.stage, errorName: log.name,
+        position: log.note || String(r.note || "").trim() });
+    });
   });
   return out;
 }
@@ -1540,6 +1554,8 @@ const KanbanScreen = () => {
   // Defect Distribution: lỗi trong ca / khung giờ / công đoạn đang xem (từ lịch sử test);
   // không tải được lịch sử thì dùng errorList cả ngày
   const normStage = (s: string) => s.trim().toUpperCase();
+  // Tên lỗi của 1 bản ghi; bản ghi trạm sửa không có mã lỗi (vd. OQC trả lô) = "Không ghi mã lỗi"
+  const errName = (r: DefectRecord) => (r.code ? errorNames.get(r.code) || r.errorName : t("pareto.noCode"));
   const paretoView = useMemo(() => {
     if (!data || !view || !data.defectRecords) return pareto;
     const all = selected.length === stageNamesAll.length;
@@ -1550,13 +1566,13 @@ const KanbanScreen = () => {
       if (view.hrs.indexOf(r.slot) < 0) return;
       if (!all && picked.indexOf(normStage(r.stage)) < 0) return;
       const list = byCode.get(r.code) || [];
-      list.push({ sn: r.sn, stage: r.stage, errorStage: r.errorStage, returnStage: r.returnStage, status: r.status, time: r.time, code: r.code, name: errorNames.get(r.code) || r.errorName,
+      list.push({ sn: r.sn, stage: r.stage, errorStage: r.errorStage, returnStage: r.returnStage, status: r.status, time: r.time, code: r.code, name: errName(r),
         position: r.position });
       byCode.set(r.code, list);
     });
-    // Tên lỗi: MDM, không có thì lấy errorName của SerialnumberErrorHistory
+    // Tên lỗi: MDM, không có thì lấy errorName của SerialnumberErrorHistory; mã rỗng = "Không ghi mã lỗi"
     const nameOf = (code: string, details: DefectDetail[]) =>
-      errorNames.get(code) || (details.filter(d => d.name)[0] || { name: "" }).name || code;
+      (code ? errorNames.get(code) || (details.filter(d => d.name)[0] || { name: "" }).name || code : t("pareto.noCode"));
     return buildPareto(Array.from(byCode, ([code, details]) => ({ name: nameOf(code, details), count: details.length, details })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, view, selected, errorNames, pareto]);
@@ -1571,9 +1587,10 @@ const KanbanScreen = () => {
     const hrs = cellPick.row < 0 ? view.hrs : [view.hrs[cellPick.row]];
     const details: DefectDetail[] = data.defectRecords
       .filter(r => hrs.indexOf(r.slot) >= 0 && normStage(r.stage) === normStage(stage))
-      .map(r => ({ sn: r.sn, stage: r.stage, errorStage: r.errorStage, returnStage: r.returnStage, status: r.status, time: r.time, code: r.code, name: errorNames.get(r.code) || r.errorName,
+      .map(r => ({ sn: r.sn, stage: r.stage, errorStage: r.errorStage, returnStage: r.returnStage, status: r.status, time: r.time, code: r.code, name: errName(r),
         position: r.position }))
-      .sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0));
+      // SN có mã lỗi lên trước SN trả theo lô AQL (không mã lỗi), rồi mới nhất trước
+      .sort((a, b) => (a.code ? 0 : 1) - (b.code ? 0 : 1) || (a.time < b.time ? 1 : a.time > b.time ? -1 : 0));
     // Đếm theo tên lỗi: "Lệch linh kiện 2 · Hàn giả 1"
     const byName = new Map<string, number>();
     details.forEach(d => byName.set(d.name || d.code, (byName.get(d.name || d.code) || 0) + 1));
@@ -1789,7 +1806,7 @@ const KanbanScreen = () => {
 
   return (
     // data-kanban-version: kiểm tra bản đang chạy trên server (F12 → Elements, hoặc Console: document.querySelector(".wo-dash").dataset.kanbanVersion)
-    <div className="wo-dash" ref={rootRef} data-kanban-version="5.2 · 2026-11-20">
+    <div className="wo-dash" ref={rootRef} data-kanban-version="5.3 · 2026-11-25">
       <FilterBar
         open={filtersOpen} onOpen={setFiltersOpen}
         products={products} product={product} onProduct={onProduct}

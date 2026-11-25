@@ -127,6 +127,9 @@ Không đưa tài khoản / mật khẩu / client_secret vào code giao diện.
   tại trạm sửa "R_xxx" (tính vào công đoạn "xxx"), cùng cách đếm với cột Fail của bảng công đoạn, nên tổng Pareto
   khi lọc công đoạn / khung giờ = tổng Fail trong bảng. Bản ghi test NG tại chính công đoạn không đếm (tránh trùng).
   Không tải được lịch sử test thì biểu đồ dùng errorList cả ngày và hiện dòng cảnh báo.
+- OQC bốc kiểm AQL: lô trượt thì cả lô sang R_OQC nhưng chỉ SN bốc trúng lỗi có mã lỗi (SerialnumberErrorHistory).
+  Các SN còn lại tính vào nhóm "Trả lô AQL (không mã lỗi)" để danh sách SN / Pareto khớp cột Fail
+  (vd. 25/11 WO 11122611201-1: 63 SN = 60 trả lô + 3 SN có mã lỗi). Bảng SN đưa SN có mã lỗi lên đầu.
 - errorList của get-daily-report đếm cả bản ghi test NG lẫn bản ghi sửa nên lớn hơn tổng Fail; Kanban dùng tổng Fail
   (chỉ dùng errorList khi không tải được lịch sử test).
 - Defect Distribution vẽ theo mẫu Pareto (cột + đường % tích lũy chung một khung, mỗi loại lỗi một màu), tính như bảng
