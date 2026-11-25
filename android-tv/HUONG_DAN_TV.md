@@ -61,7 +61,7 @@ Sau khi cài, ứng dụng **Kanban MKV** nằm trong danh sách ứng dụng c�
 
 ## 4. Tự cập nhật qua GitHub
 
-Mã nguồn: https://github.com/balacuba/kanban-tv (công khai), bản làm việc trên máy: `Documents\kanban-tv`.
+Mã nguồn: https://github.com/balacuba/kanban-test (công khai), bản làm việc trên máy: `Documents\kanban-tv`.
 
 **Cài đặt một lần:** chạy `khoa-ky\dat-secrets-github.ps1` (chuột phải → Run with PowerShell) để đưa khóa ký lên
 GitHub Secrets. Không có bước này GitHub không build được APK.
@@ -95,7 +95,7 @@ GitHub Actions tự build (khoảng 5 phút) và đưa lên Release `tv-latest`.
 node node_modules\vite\bin\vite.js build --config tv\vite.config.js
 cd android-tv
 set KANBAN_ACCOUNT_FILE=%USERPROFILE%\Desktop\Kanban_TV\khoa-ky\account.properties
-set KANBAN_UPDATE_URL=https://github.com/balacuba/kanban-tv/releases/download/tv-latest/update.json
+set KANBAN_UPDATE_URL=https://github.com/balacuba/kanban-test/releases/download/tv-latest/update.json
 gradlew.bat assembleRelease
 ```
 (cần `android-tv\keystore.properties` + `kanbantv-release.jks` chép từ `khoa-ky`, và JDK 17 + Android SDK).
