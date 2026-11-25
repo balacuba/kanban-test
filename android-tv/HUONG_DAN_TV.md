@@ -61,12 +61,12 @@ Sau khi cài, ứng dụng **Kanban MKV** nằm trong danh sách ứng dụng c�
 
 ## 4. Tự cập nhật qua GitHub
 
-Mã nguồn: https://github.com/balacuba/kanban-test (công khai), bản làm việc trên máy: `Documents\kanban-tv`.
+Mã nguồn: https://github.com/balacuba/kanban-test (công khai), bản làm việc trên máy: `D:\Dự Án Mes\kanban-tv`.
 
 **Cài đặt một lần:** chạy `khoa-ky\dat-secrets-github.ps1` (chuột phải → Run with PowerShell) để đưa khóa ký lên
 GitHub Secrets. Không có bước này GitHub không build được APK.
 
-**Mỗi lần có bản mới:** sửa code trong `Documents\kanban-tv`, rồi:
+**Mỗi lần có bản mới:** sửa code trong `D:\Dự Án Mes\kanban-tv`, rồi:
 ```
 git add -A
 git commit -m "mô tả thay đổi"
