@@ -1,6 +1,6 @@
 # Bàn giao dự án Kanban MKV (HourlyOutputReport + Android TV + Kanban relay)
 
-Cập nhật: 25/11/2026 · Bản Kanban đang chạy: **5.3 · 2026-11-25** · App TV: **5.1** (VERSION_CODE 42) · Relay: **1.2**
+Cập nhật: 25/11/2026 · Bản Kanban đang chạy: **5.4 · 2026-11-25** · App TV: **5.1** (VERSION_CODE 42) · Relay: **1.2**
 
 Tài liệu này để người / team tiếp nhận chạy tiếp dự án mà không cần hỏi lại. Đọc theo thứ tự: mục 0 (bắt đầu nhanh)
 → mục 2 (file nào làm gì) → mục 4 (quy tắc tính số, phần dễ sai nhất) → mục 5 (việc còn dở).

@@ -78,6 +78,9 @@ interface WoInfo { wo: string; model: string; product: string; line: string; cre
 const matchWo = (x: WoInfo, m: string, l: string, p = "") =>
   (!m || x.model === m) && (!l || x.line === l) && (!p || x.product === p);
 const ALL_WO = "__all__";
+// Tên lỗi cho bản ghi trạm sửa không có mã lỗi: OQC bốc kiểm AQL trượt thì trả cả lô sang R_OQC, chỉ SN bốc trúng có mã lỗi.
+// Hiện ở bảng SN của ô Fail (để khớp số Fail), không tính vào Defect Distribution / Pareto.
+const LOT_REJECT = "LOT ERROR Reject";
 const stageId = (s: string) => s.trim().toUpperCase();
 const SCAN_EVERY = 12;   // "Tất cả WO của model": cứ 12 lần tự tải (~1 phút) dò lại các WO chưa có số liệu
 const POOL = 4;          // số yêu cầu gửi cùng lúc khi tải nhiều WO (từ ~6 yêu cầu cùng lúc get-daily-report đã hay trả 502)
@@ -1554,8 +1557,8 @@ const KanbanScreen = () => {
   // Defect Distribution: lỗi trong ca / khung giờ / công đoạn đang xem (từ lịch sử test);
   // không tải được lịch sử thì dùng errorList cả ngày
   const normStage = (s: string) => s.trim().toUpperCase();
-  // Tên lỗi của 1 bản ghi; bản ghi trạm sửa không có mã lỗi (vd. OQC trả lô) = "Không ghi mã lỗi"
-  const errName = (r: DefectRecord) => (r.code ? errorNames.get(r.code) || r.errorName : t("pareto.noCode"));
+  // Tên lỗi của 1 bản ghi; bản ghi trạm sửa không có mã lỗi (vd. OQC trả lô AQL) = LOT_REJECT
+  const errName = (r: DefectRecord) => (r.code ? errorNames.get(r.code) || r.errorName : LOT_REJECT);
   const paretoView = useMemo(() => {
     if (!data || !view || !data.defectRecords) return pareto;
     const all = selected.length === stageNamesAll.length;
@@ -1565,14 +1568,15 @@ const KanbanScreen = () => {
     data.defectRecords.forEach(r => {
       if (view.hrs.indexOf(r.slot) < 0) return;
       if (!all && picked.indexOf(normStage(r.stage)) < 0) return;
+      if (!r.code) return;   // trả lô AQL (không mã lỗi) không tính vào Defect Distribution, chỉ hiện ở bảng SN của ô Fail
       const list = byCode.get(r.code) || [];
       list.push({ sn: r.sn, stage: r.stage, errorStage: r.errorStage, returnStage: r.returnStage, status: r.status, time: r.time, code: r.code, name: errName(r),
         position: r.position });
       byCode.set(r.code, list);
     });
-    // Tên lỗi: MDM, không có thì lấy errorName của SerialnumberErrorHistory; mã rỗng = "Không ghi mã lỗi"
+    // Tên lỗi: MDM, không có thì lấy errorName của SerialnumberErrorHistory
     const nameOf = (code: string, details: DefectDetail[]) =>
-      (code ? errorNames.get(code) || (details.filter(d => d.name)[0] || { name: "" }).name || code : t("pareto.noCode"));
+      errorNames.get(code) || (details.filter(d => d.name)[0] || { name: "" }).name || code;
     return buildPareto(Array.from(byCode, ([code, details]) => ({ name: nameOf(code, details), count: details.length, details })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, view, selected, errorNames, pareto]);
@@ -1806,7 +1810,7 @@ const KanbanScreen = () => {
 
   return (
     // data-kanban-version: kiểm tra bản đang chạy trên server (F12 → Elements, hoặc Console: document.querySelector(".wo-dash").dataset.kanbanVersion)
-    <div className="wo-dash" ref={rootRef} data-kanban-version="5.3 · 2026-11-25">
+    <div className="wo-dash" ref={rootRef} data-kanban-version="5.4 · 2026-11-25">
       <FilterBar
         open={filtersOpen} onOpen={setFiltersOpen}
         products={products} product={product} onProduct={onProduct}

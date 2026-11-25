@@ -125,11 +125,14 @@ Không đưa tài khoản / mật khẩu / client_secret vào code giao diện.
     sheet Theo giờ có cột Tỷ lệ lỗi / Tỷ lệ đạt, sheet Biểu đồ có ảnh biểu đồ (chế độ đang xem).
 - Defect Distribution lọc theo ca, khung giờ, công đoạn đang xem: chỉ đếm bản ghi ProductSerialNumberTestHistory
   tại trạm sửa "R_xxx" (tính vào công đoạn "xxx"), cùng cách đếm với cột Fail của bảng công đoạn, nên tổng Pareto
-  khi lọc công đoạn / khung giờ = tổng Fail trong bảng. Bản ghi test NG tại chính công đoạn không đếm (tránh trùng).
-  Không tải được lịch sử test thì biểu đồ dùng errorList cả ngày và hiện dòng cảnh báo.
+  khi lọc công đoạn / khung giờ = tổng Fail trong bảng (trừ SN trả lô AQL, xem dưới). Bản ghi test NG tại chính công
+  đoạn không đếm (tránh trùng). Không tải được lịch sử test thì biểu đồ dùng errorList cả ngày và hiện dòng cảnh báo.
 - OQC bốc kiểm AQL: lô trượt thì cả lô sang R_OQC nhưng chỉ SN bốc trúng lỗi có mã lỗi (SerialnumberErrorHistory).
-  Các SN còn lại tính vào nhóm "Trả lô AQL (không mã lỗi)" để danh sách SN / Pareto khớp cột Fail
-  (vd. 25/11 WO 11122611201-1: 63 SN = 60 trả lô + 3 SN có mã lỗi). Bảng SN đưa SN có mã lỗi lên đầu.
+  Các SN còn lại (bản ghi trạm sửa không có mã lỗi) có tên lỗi "LOT ERROR Reject" (hằng `LOT_REJECT` trong
+  HourlyOutputReport.tsx): **không tính vào Defect Distribution / Pareto** (và sheet Pareto, SN lỗi của Excel, ô Lỗi
+  nhiều nhất), chỉ hiện trong bảng SN khi bấm ô Fail của bảng công đoạn để số SN khớp cột Fail
+  (vd. 25/11 WO 11122611201-1, ô OQC: 63 SN = 60 LOT ERROR Reject + 3 SN có mã lỗi; Pareto chỉ có 3 lỗi đó).
+  Bảng SN đưa SN có mã lỗi lên đầu.
 - errorList của get-daily-report đếm cả bản ghi test NG lẫn bản ghi sửa nên lớn hơn tổng Fail; Kanban dùng tổng Fail
   (chỉ dùng errorList khi không tải được lịch sử test).
 - Defect Distribution vẽ theo mẫu Pareto (cột + đường % tích lũy chung một khung, mỗi loại lỗi một màu), tính như bảng
