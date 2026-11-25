@@ -1,0 +1,2 @@
+const r = await fetch("http://localhost:5174/planning/rest/entities/SerialnumberErrorHistory/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filter: { conditions: [{ property: "serialNumber", operator: "=", value: process.argv[2] }] }, sort: "id", limit: 100 }) });
+(await r.json()).forEach(x => console.log(" ", x.id, x.createdAt, x.stageName, x.errorCode, x.errorName, "note:", x.note||"", "by", x.accountName, x.operatorName));

@@ -1,5 +1,7 @@
 # WO-Line Dashboard (React + CSS)
 
+> **Bàn giao dự án:** đọc [BAN_GIAO.md](BAN_GIAO.md) trước (cách chạy, file nào làm gì, quy tắc tính, việc còn dở).
+
 ## Chạy thử
 
 ```bash
